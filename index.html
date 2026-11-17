@@ -116,16 +116,10 @@ function resultLink(text, url) {
   }
   return link;
 }
-function resultItem(item) {
-  const row = element('li', '');
-  row.append(resultLink(item.title, item.url));
-  if (view === 'nexus') row.append(element('span', ' · ' + item.repository));
-  const details = element('details', '');
-  details.append(element('summary', 'Находок: ' + item.findings.length +
-    ' · кандидатов: ' + item.findings.filter(finding => finding.status === 'candidate').length));
+function findingList(findings) {
   const list = element('ul', '');
   const labels = {candidate:'кандидат', outside_scope:'вне выбора', unknown_version:'версия неизвестна'};
-  for (const finding of item.findings) {
+  for (const finding of findings) {
     const line = element('li', '');
     const evidence = finding.evidence + (finding.line ? ':' + finding.line : '');
     const context = [finding.branch, finding.commit, finding.platform, finding.digest].filter(Boolean);
@@ -135,9 +129,61 @@ function resultItem(item) {
     if (context.length) line.append(element('p', context.join(' · ')));
     list.append(line);
   }
-  details.append(list);
+  return list;
+}
+function resultItem(item) {
+  const row = element('li', '');
+  const details = element('details', '');
+  if (view === 'nexus') {
+    row.append(resultLink(item.title, item.url), element('span', ' · ' + item.repository));
+    details.append(element('summary', 'Находок: ' + item.findings.length +
+      ' · кандидатов: ' + item.findings.filter(finding => finding.status === 'candidate').length),
+      findingList(item.findings));
+  } else {
+    const files = new Map();
+    for (const finding of item.findings) {
+      if (!files.has(finding.file)) files.set(finding.file, []);
+      files.get(finding.file).push(finding);
+    }
+    const candidates = [...files.values()].filter(rows => rows.some(row => row.status === 'candidate')).length;
+    const heading = element('summary', '');
+    heading.append(resultLink(item.title.split('/').at(-1), item.url),
+      element('span', ' · файлов: ' + files.size + ' · кандидатов: ' + candidates));
+    const list = element('ul', '');
+    for (const [file, findings] of files) {
+      const candidate = findings.find(finding => finding.status === 'candidate');
+      if (candidatesOnly.checked && !candidate) continue;
+      const entry = element('li', '');
+      const filePanel = element('details', '');
+      const title = element('summary', '');
+      title.append(resultLink(file, (candidate || findings[0]).url));
+      if (candidate) title.append(element('span', ' · кандидат'));
+      filePanel.append(title, findingList(findings));
+      entry.append(filePanel);
+      list.append(entry);
+    }
+    details.append(heading, list);
+  }
   row.append(details);
   return row;
+}
+function resultsTree(items) {
+  if (view === 'nexus') return items.map(resultItem);
+  const projects = new Map();
+  for (const item of items) {
+    if (!projects.has(item.project)) projects.set(item.project, []);
+    projects.get(item.project).push(item);
+  }
+  return [...projects].map(([project, repositories]) => {
+    const row = element('li', '');
+    const details = element('details', '');
+    details.open = true;
+    const list = element('ul', '');
+    list.append(...repositories.map(resultItem));
+    details.append(element('summary', project + ' · репозиториев на странице: ' + repositories.length), list);
+    row.append(details);
+    return row;
+  });
 }
 async function showResults() {
   if (view === 'scan') return;
@@ -161,7 +207,7 @@ async function showResults() {
       ' · Опрос: ' + new Date(data.generatedAt).toLocaleString('ru-RU');
     if (data.profile === 'java4shell') resultStatus.textContent += ' · CVE-2026-114938';
     if (!data.items.length) resultStatus.textContent += ' · Совпадений нет';
-    resultList.replaceChildren(...data.items.map(resultItem));
+    resultList.replaceChildren(...resultsTree(data.items));
     pageNumber.textContent = data.page + ' / ' + data.pages;
     previous.disabled = data.page <= 1;
     next.disabled = data.page >= data.pages;

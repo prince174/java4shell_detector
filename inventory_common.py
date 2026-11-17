@@ -162,7 +162,8 @@ def write_reports(output, scope, assets, findings, errors):
     if scope.get("profile") == "java4shell":
         rule = JAVA4SHELL + " inventory candidates; verify runtime, vendor and patch level"
         for row in findings:
-            row["status"], row["policy_reason"] = java4shell_result(row)
+            if "policy_reason" not in row:
+                row["status"], row["policy_reason"] = java4shell_result(row)
     candidates = [row for row in findings if row["status"] == "candidate"]
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
@@ -177,7 +178,7 @@ def write_reports(output, scope, assets, findings, errors):
     )
     fields = ("source", "project", "repository", "branch", "commit", "image", "tag", "reference",
               "index_digest", "digest", "platform", "role", "vendor", "version",
-              "declared_version", "product_version", "status", "policy_reason", "evidence", "line")
+              "declared_version", "product_version", "status", "policy_reason", "file", "evidence", "line")
     with (output / "candidates.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()

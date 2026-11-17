@@ -173,6 +173,8 @@ def result_groups(path, stamp):
     for row in report["findings"]:
         repository = row["repository"]
         evidence_url = ""
+        file = ""
+        project = ""
         if source == "nexus":
             image = row["image"]
             reference = row.get("reference") or row.get("tag") or row["digest"]
@@ -185,9 +187,10 @@ def result_groups(path, stamp):
             key = (repository,)
             title = repository
             owner, slug = (quote(part, safe="") for part in repository.split("/", 1))
+            project = row.get("project") or ("Без проекта" if cloud else repository.split("/", 1)[0])
             root = f"{base}/{owner}/{slug}" if cloud else f"{base}/projects/{owner}/repos/{slug}"
             url = root if cloud else root + "/browse" if base else ""
-            file = row.get("file") or row["evidence"].rpartition(" (")[0]
+            file = row.get("file") or row["evidence"].rsplit(" (", 1)[0]
             if url and file and row.get("commit"):
                 path_name = quote(file)
                 if cloud:
@@ -195,9 +198,11 @@ def result_groups(path, stamp):
                 else:
                     revision = urlencode({"at": row["commit"]})
                     evidence_url = f"{root}/browse/{path_name}?{revision}#{row['line']}"
-        group = groups.setdefault(key, {"title": title, "repository": repository, "url": url, "findings": []})
-        group["findings"].append({**row, "url": evidence_url})
-    return ([groups[key] for key in sorted(groups)], scope.get("java_majors", [17]),
+        group = groups.setdefault(key, {"title": title, "repository": repository, "url": url,
+                                        "project": project, "findings": []})
+        group["findings"].append({**row, "url": evidence_url, **({"file": file} if file else {})})
+    ordered = sorted(groups.values(), key=lambda group: (group["project"], group["title"]))
+    return (ordered, scope.get("java_majors", [17]),
             scope.get("profile", "inventory"), report["generated_at"])
 
 

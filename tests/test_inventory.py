@@ -37,6 +37,7 @@ def tar_fixture(path, files):
 
 def bb_args(**overrides):
     return argparse.Namespace(**({"project": [], "branch": [], "max_file_bytes": 1024, "java_majors": (17,),
+                                  "profile": "inventory",
                                   "workspace": "test"} | overrides))
 
 
@@ -106,6 +107,37 @@ FROM eclipse-temurin:17-jre
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_first_candidate_stops_file_and_prevents_second_branch_fetch(self):
+        filename = "Dockerfile.cdxgen-worker"
+        data = b"""FROM registry.example/eclipse-temurin:8-jdk-noble AS jdk8
+FROM registry.example/eclipse-temurin:21-jdk-noble AS jdk21
+FROM registry.example/eclipse-temurin:25-jdk-noble AS jdk25
+FROM registry.example/maven:3.9-eclipse-temurin-17
+COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
+"""
+        class FixtureApi:
+            def __init__(self):
+                self.reads = []
+
+            def json(self, path, params):
+                return {"values": [filename], "isLastPage": True}
+
+            def read(self, path, params, *_args, **_kwargs):
+                self.reads.append(params["at"])
+                return data
+
+        api = FixtureApi()
+        candidates, findings, errors = set(), [], []
+        args = bb_args(java_majors=JAVA4SHELL_MAJORS, profile="java4shell")
+        for commit in ("main-head", "release-head"):
+            bitbucket.scan_commit(api, args, {"commit": commit}, findings, errors, candidates,
+                                  cloud=False, base="/repo")
+        self.assertEqual(api.reads, ["main-head"])
+        self.assertFalse(errors)
+        self.assertEqual([(row["file"], row["version"], row["role"], row["status"]) for row in findings],
+                         [(filename, "8", "intermediate_base", "outside_scope"),
+                          (filename, "21", "bundled_jdk", "candidate")])
+
     def test_datacenter_pagination_commit_and_delay(self):
         events = []
         commit = "a" * 40

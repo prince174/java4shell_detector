@@ -10,13 +10,15 @@ from urllib.parse import quote
 
 from inventory_common import (
     Api, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, LEGACY_VERSION,
-    classify, load_env, parse_java_majors, write_reports,
+    classify, java4shell_result, load_env, parse_java_majors, write_reports,
 )
 
 API_ROOT = "/rest/api/latest"
 ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
 JAVA = r"(?:openjdk|temurin|(?:amazon)?corretto|zulu|sapmachine|liberica|semeru|graalvm|oraclejdk|oracle-jdk|jdk|jre|java|jetbrains/runtime)"
 JAVA_IMAGE = re.compile(rf"(?:^|[/_.-]){JAVA}(?=[:/_.@\d-]|$)", re.I)
+TEMURIN_IMAGE = re.compile(r"(?:^|/)eclipse-temurin(?=[:@]|$)", re.I)
+COPY_JDK = re.compile(r"^\s*COPY\s+--from=(\S+)\s+\S*/(?:jdk|openjdk|jre)/?\s+\S+", re.I)
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
 SETTING = re.compile(
@@ -92,6 +94,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         (".dockerfile", ".containerfile")
     )
     stages = [number for number, line in enumerate(lines, 1) if FROM.match(line)] if dockerfile else []
+    copied_jdks = {copy[1].lower() for line in lines[stages[-1]:] if (copy := COPY_JDK.match(line))} if stages else set()
     variables = {}
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
@@ -114,6 +117,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             version, status = classify(inferred, java_majors) if not VARIABLE.search(ref) and "{{" not in ref else ("", "unknown_version")
             if "graalvm" in ref.lower():
                 distribution = "GraalVM"
+            elif TEMURIN_IMAGE.search(ref):
+                vendor = "Eclipse Adoptium"
             elif re.search(r"(?:^|/)(?:oraclejdk|oracle-jdk|oracle/jdk|oracle/serverjre)(?=[:/]|$)", ref, re.I) or ref.lower().startswith("container-registry.oracle.com/java/"):
                 vendor = "Oracle"
         else:
@@ -147,6 +152,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             resolved = substitute(value, variables)
             if JAVA_IMAGE.search(resolved) or JAVA_IMAGE.search(value) or VARIABLE.search(value) or "{{" in value:
                 role = ("runtime_base" if number == stages[-1] else "intermediate_base") if stage else "image_reference"
+                if stage and stage[2] and stage[2].lower() in copied_jdks:
+                    role = "bundled_jdk"
                 yield finding(number, role, "FROM" if stage else "image", value, image=True)
             continue
         matches = [(m["key"], m["value"]) for m in XML.finditer(line)] if name == "pom.xml" else []
@@ -197,6 +204,11 @@ def inventory(api, args):
                     assets.append({"repository": repository,
                                    "status": "no_selected_branches" if available else "empty_repository"})
                 commits = {}
+                candidate_files = set()
+                branches.sort(key=lambda branch: not (
+                    branch.get("default") or branch.get("isDefault")
+                    or (default_id and branch.get("id") == default_id)
+                ))
                 for branch in branches:
                     commit = branch["latestCommit"]
                     refs = commits.setdefault(commit, [])
@@ -205,7 +217,7 @@ def inventory(api, args):
                     asset = {"source": "bitbucket", "repository": repository,
                              "project": project, "branch": ", ".join(refs), "commit": commit}
                     assets.append(asset)
-                    scan_commit(api, args, asset, findings, errors, cloud=False, base=base)
+                    scan_commit(api, args, asset, findings, errors, candidate_files, cloud=False, base=base)
             except ERRORS as exc:
                 errors.append({"repository": repository, "error": str(exc)})
     except ERRORS as exc:
@@ -249,7 +261,7 @@ def cloud_inventory(api, args):
             repository = f"{args.workspace}/{slug}"
             base = repos + "/" + quote(slug, safe="")
             try:
-                if not project and args.project:
+                if not project:
                     project = (api.json(base).get("project") or {}).get("key")
                 if args.project and project not in args.project:
                     continue
@@ -266,13 +278,15 @@ def cloud_inventory(api, args):
                 else:
                     branches = [api.json(base + "/refs/branches/" + quote(default_name, safe=""))]
                 commits = {}
+                candidate_files = set()
+                branches.sort(key=lambda branch: branch["name"] != default_name)
                 for branch in branches:
                     commits.setdefault(branch["target"]["hash"], []).append(branch["name"])
                 for commit, refs in commits.items():
                     asset = {"source": "bitbucket_cloud", "repository": repository, "project": project,
                              "branch": ", ".join(refs), "commit": commit}
                     assets.append(asset)
-                    scan_commit(api, args, asset, findings, errors, cloud=True, base=base)
+                    scan_commit(api, args, asset, findings, errors, candidate_files, cloud=True, base=base)
             except ERRORS as exc:
                 errors.append({"repository": repository, "error": str(exc)})
     except ERRORS as exc:
@@ -280,7 +294,7 @@ def cloud_inventory(api, args):
     return assets, findings, errors
 
 
-def scan_commit(api, args, asset, findings, errors, *, cloud, base):
+def scan_commit(api, args, asset, findings, errors, candidate_files, *, cloud, base):
     commit = asset["commit"]
     root = base + "/src/" + quote(commit, safe="") + "/" if cloud else base + "/raw/"
     params = None if cloud else {"at": commit}
@@ -289,13 +303,17 @@ def scan_commit(api, args, asset, findings, errors, *, cloud, base):
     count_before = len(findings)
     try:
         for path in paths:
-            if not config_file(path):
+            if path in candidate_files or not config_file(path):
                 continue
             try:
                 data = api.read(root + quote(path), params, args.max_file_bytes, accept="*/*")
-                findings.extend({**asset, **row} for row in declarations(
-                    path, data.decode("utf-8-sig"), args.java_majors
-                ))
+                for row in declarations(path, data.decode("utf-8-sig"), args.java_majors):
+                    if args.profile == "java4shell":
+                        row["status"], row["policy_reason"] = java4shell_result(row)
+                    findings.append({**asset, **row, "file": path})
+                    if row["status"] == "candidate":
+                        candidate_files.add(path)
+                        break
             except ERRORS as exc:
                 errors.append({**asset, "file": path, "error": str(exc)})
     except ERRORS as exc:

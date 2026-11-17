@@ -4,3 +4,5 @@
 reports/
 __pycache__/
 compose.override.yaml
+/certs/*
+!/certs/.gitkeep

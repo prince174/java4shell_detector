@@ -1,7 +1,20 @@
-FROM golang:1.26-alpine AS crane
+ARG GO_BASE_IMAGE=golang:1.26-alpine
+ARG PYTHON_BASE_IMAGE=python:3.13-slim
+
+FROM ${GO_BASE_IMAGE} AS crane
+ARG GOPROXY=https://proxy.golang.org,direct
+ARG GOSUMDB=sum.golang.org
+RUN --mount=type=bind,source=certs,target=/run/corporate-ca \
+    for cert in /run/corporate-ca/*.crt; do \
+        if [ -f "$cert" ]; then cp "$cert" /usr/local/share/ca-certificates/ || exit 1; fi; \
+    done && update-ca-certificates
 RUN CGO_ENABLED=0 GOBIN=/out go install github.com/google/go-containerregistry/cmd/crane@v0.22.1
 
-FROM python:3.13-slim
+FROM ${PYTHON_BASE_IMAGE}
+RUN --mount=type=bind,source=certs,target=/run/corporate-ca \
+    for cert in /run/corporate-ca/*.crt; do \
+        if [ -f "$cert" ]; then cp "$cert" /usr/local/share/ca-certificates/ || exit 1; fi; \
+    done && update-ca-certificates
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 INVENTORY_REPORT_DIR=/reports
 WORKDIR /app
 COPY --from=crane /out/crane /usr/local/bin/crane

@@ -1,5 +1,6 @@
 """Repeatable acceptance checks with isolated Bitbucket and Nexus fixtures."""
 import argparse
+import base64
 import contextlib
 import csv
 import io
@@ -224,6 +225,58 @@ COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
 
 
 class NexusTests(unittest.TestCase):
+    def test_path_based_routing_and_explicit_override(self):
+        digest = "sha256:" + "a" * 64
+
+        class FixtureApi:
+            base = "https://nexus.example.invalid"
+
+            def json(self, path, params=None):
+                if path.endswith("/repositories"):
+                    return [{"name": repo, "format": "docker", "type": "hosted"}
+                            for repo in ("auto-hosted", "port-hosted")]
+                return {"items": [{"path": "v2/team/demo/manifests/1.0"}]}
+
+        class FixtureRegistry:
+            def __init__(self):
+                self.tags = []
+
+            def run(self, command, ref, insecure, *options):
+                if command == "digest":
+                    self.tags.append(ref)
+                    return digest.encode()
+                tar_fixture(options[0], {})
+
+            def manifests(self, name, digest, insecure, *, on_error=None):
+                yield digest, "linux/amd64"
+
+        registry = FixtureRegistry()
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,))
+            assets, _, errors = nexus.inventory(
+                FixtureApi(), registry, args, {"port-hosted": "https://nexus.example.invalid:18443"}, tmp
+            )
+        self.assertFalse(errors)
+        self.assertEqual(len(assets), 2)
+        self.assertEqual(registry.tags, ["nexus.example.invalid/auto-hosted/team/demo:1.0",
+                                         "nexus.example.invalid:18443/team/demo:1.0"])
+
+    def test_credentials_follow_the_resolved_registry_host(self):
+        env = {"NEXUS_DOCKER_USERNAME": "reader", "NEXUS_DOCKER_PASSWORD": "fixture",
+               "NEXUS_ALLOW_HTTP_AUTH": "0"}
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env):
+            registry = nexus.Registry(argparse.Namespace(crane="crane", scan_timeout=5, progress=False), tmp)
+            with patch("nexus_inventory.subprocess.run") as run:
+                run.return_value = argparse.Namespace(returncode=0, stdout=b"result")
+                registry.run("digest", "nexus.example.invalid/auto-hosted/team/demo:1.0", False)
+                settings = json.loads(Path(tmp, "config.json").read_text(encoding="utf-8"))
+                self.assertEqual(base64.b64decode(settings["auths"]["nexus.example.invalid"]["auth"]),
+                                 b"reader:fixture")
+                self.assertEqual(run.call_args.kwargs["env"]["DOCKER_CONFIG"], tmp)
+                with self.assertRaisesRegex(ValueError, "require HTTPS"):
+                    registry.run("digest", "nexus.example.invalid/auto-hosted/team/demo:1.0", True)
+                self.assertEqual(run.call_count, 1)
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

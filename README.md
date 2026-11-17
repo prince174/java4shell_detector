@@ -25,11 +25,11 @@ docker compose up -d --build --wait
 | Bitbucket Data Center | `BITBUCKET_URL` с контекстным путём, если он используется, и `BITBUCKET_TOKEN` с правом чтения репозиториев |
 | Bitbucket Cloud | `BITBUCKET_CLOUD_WORKSPACE`, `BITBUCKET_CLOUD_EMAIL` и `BITBUCKET_CLOUD_TOKEN` для API token. Для Bearer access token email оставь пустым |
 | Nexus REST | `NEXUS_URL` и `NEXUS_REST_USERNAME`/`NEXUS_REST_PASSWORD` для Basic или `NEXUS_TOKEN` для Bearer при поддержке на стороне сервера |
-| Nexus Docker Registry | `NEXUS_REGISTRIES` в формате JSON, например `{"docker-hosted":"https://docker.example.com:18443"}`. Для Docker-аутентификации укажи `NEXUS_DOCKER_USERNAME`/`NEXUS_DOCKER_PASSWORD` |
+| Nexus Docker Registry | По умолчанию используется хост из `NEXUS_URL` и имя репозитория в пути. Для Docker-аутентификации укажи `NEXUS_DOCKER_USERNAME`/`NEXUS_DOCKER_PASSWORD` |
 
 Для GUI платформа выбирается в форме. В CLI исходный режим задаёт `BITBUCKET_PROVIDER` или флаг `--provider`. Значения секретов остаются в окружении сервиса. Формат Compose `raw` сохраняет специальные символы, включая `$`. В `.env` записывай значения без кавычек. Для защищённых корпоративных сервисов используй HTTPS и доверенный сертификат. Переменные `BITBUCKET_ALLOW_HTTP_AUTH=1` и `NEXUS_ALLOW_HTTP_AUTH=1` разрешают аутентификацию по HTTP для изолированного стенда.
 
-Для Docker групп указывай имена отдельных репозиториев-участников. У каждого должен быть собственный корректный endpoint в `NEXUS_REGISTRIES`, чтобы одноимённые образы из разных репозиториев не смешивались. При развертывании в контейнере `localhost` указывает на сам контейнер. Для опубликованных на Docker Desktop тестовых портов используй `host.docker.internal`.
+Для маршрутизации по пути достаточно `NEXUS_URL=https://nexus.example.com`. Сканер построит ссылку вида `nexus.example.com/docker-hosted/team/app:1.0` для каждого репозитория автоматически. Для репозитория с выделенным Docker-портом или отдельным хостом можно указать исключение в `NEXUS_REGISTRIES`, например `{"docker-hosted":"https://docker.example.com:18443"}`. Для Docker-групп указывай имена отдельных репозиториев-участников. При развёртывании в контейнере `localhost` указывает на сам контейнер. Для опубликованных на Docker Desktop тестовых портов используй `host.docker.internal`.
 
 Чтобы сузить опрос Nexus, введи точные имена репозиториев в поле **Docker-репозитории**, например `java4shell-fixtures` или `docker-prod,docker-stage`. Имена видны в **Nexus → Browse**. В CLI укажи один `--repository` на каждое имя.
 

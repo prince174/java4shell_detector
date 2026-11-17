@@ -60,28 +60,31 @@ def endpoint(value):
 
 
 class Registry:
-    def __init__(self, args, workdir, mappings):
+    def __init__(self, args, workdir):
         self.args = args
+        self.workdir = workdir
         self.env = dict(os.environ)
         self.username = os.getenv("NEXUS_DOCKER_USERNAME")
         self.password = os.getenv("NEXUS_DOCKER_PASSWORD")
         if bool(self.username) != bool(self.password):
             raise ValueError("Set both NEXUS_DOCKER_USERNAME and NEXUS_DOCKER_PASSWORD")
-        if self.username:
-            endpoints = {endpoint(value) for value in mappings.values()}
-            if (any(insecure for _, _, insecure in endpoints)
-                    and os.getenv("NEXUS_ALLOW_HTTP_AUTH") != "1"):
-                raise ValueError("Docker credentials from .env require HTTPS registry endpoints")
-            auth = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
-            Path(workdir, "config.json").write_text(json.dumps({
-                "auths": {host: {"auth": auth} for host, _, _ in endpoints}
-            }), encoding="utf-8")
-            self.env["DOCKER_CONFIG"] = workdir
+        self.auth_host = None
         for key in ("BITBUCKET_TOKEN", "BITBUCKET_CLOUD_TOKEN", "NEXUS_TOKEN",
                     "NEXUS_REST_PASSWORD", "NEXUS_DOCKER_PASSWORD"):
             self.env.pop(key, None)
 
     def run(self, command, ref, insecure, *options):
+        if self.username:
+            if insecure and self.env.get("NEXUS_ALLOW_HTTP_AUTH") != "1":
+                raise ValueError("Docker credentials from .env require HTTPS registry endpoints")
+            host = ref.split("/", 1)[0]
+            if host != self.auth_host:
+                auth = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+                Path(self.workdir, "config.json").write_text(json.dumps({
+                    "auths": {host: {"auth": auth}}
+                }), encoding="utf-8")
+                self.env["DOCKER_CONFIG"] = self.workdir
+                self.auth_host = host
         command_line = [self.args.crane, command, ref, *options]
         if insecure:
             command_line.append("--insecure")
@@ -218,9 +221,11 @@ def inventory(api, registry, args, mappings, workdir):
                     raise ValueError(f"Nexus repository format is {repo_format!r}. Choose a repository with format 'docker'.")
                 if repositories[repository]["type"] not in {"hosted", "proxy"}:
                     raise ValueError("Specify group member repositories individually")
-                if repository not in mappings:
-                    raise ValueError("Missing registry endpoint mapping")
-                host, prefix, insecure = endpoint(mappings[repository])
+                registry_url = mappings.get(repository)
+                if registry_url is None:
+                    nexus_url = urlsplit(api.base)
+                    registry_url = f"{nexus_url.scheme}://{nexus_url.netloc}/{repository}"
+                host, prefix, insecure = endpoint(registry_url)
                 seen_refs = set()
                 for item in docker_assets(api, repository):
                     match = MANIFEST_PATH.search(item["path"])
@@ -339,7 +344,7 @@ def main():
         api = Api(args.url, auth, args.timeout, args.delay, args.progress,
                   allow_http_auth=os.getenv("NEXUS_ALLOW_HTTP_AUTH") == "1")
         with tempfile.TemporaryDirectory(prefix="java4shell-") as workdir:
-            registry = Registry(args, workdir, mappings)
+            registry = Registry(args, workdir)
             result = inventory(api, registry, args, mappings, workdir)
     except ERRORS as exc:
         parser.error(str(exc))

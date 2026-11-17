@@ -39,16 +39,14 @@ docker compose up -d --build --wait
 
 Положи сертификаты корпоративного CA в `certs/` как PEM-файлы с расширением `.crt`, по одному сертификату в файле. Dockerfile добавляет их в системное хранилище доверия этапа `crane` перед скачиванием Go-модулей и итогового образа перед запуском Python и `crane`. Каталог может быть пустым. После замены CA пересобери сервис командой `docker compose up -d --build --wait`. Git игнорирует локальные сертификаты.
 
-В `.env` можно указать реестр для базовых образов, Go proxy и при необходимости прокси базы контрольных сумм. Пример для Nexus с отдельным Docker-коннектором:
+В `.env` можно указать Go proxy и прокси базы контрольных сумм. Compose передаёт значения на этап `go install`. Пустые параметры используют стандартные настройки Go.
 
 ```dotenv
-GO_BASE_IMAGE=docker.nexus.example.com/library/golang:1.26-alpine
-PYTHON_BASE_IMAGE=docker.nexus.example.com/library/python:3.13-slim
 GOPROXY=https://nexus.example.com/repository/go-proxy/
 GOSUMDB=sum.golang.org https://nexus.example.com/repository/go-sumdb/
 ```
 
-Сохрани ссылки на образы с нужными Go и Python и с установленным `update-ca-certificates`. По умолчанию используются публичные образы и стандартные настройки Go. Укажи только адрес Nexus в `GOPROXY`, если сборка должна работать через него без прямого доступа. Передавай учётные данные для загрузки образов через `docker login`. Если Go proxy требует аутентификации, подключи `.netrc` через секрет BuildKit для команды `go install`. URL в build args предназначены для адресов без паролей и токенов.
+Базовые образы заданы в двух строках `FROM` Dockerfile. Если они тоже должны скачиваться из Nexus, укажи там полные ссылки на образы из Docker-репозитория. Укажи только адрес Nexus в `GOPROXY`, если Go-модули должны скачиваться через него без прямого доступа. Передавай учётные данные для загрузки образов через `docker login`. Если Go proxy требует аутентификации, используй секрет BuildKit для `.netrc`. URL в build args предназначены для адресов без паролей и токенов.
 
 Если корпоративный CA требуется уже при загрузке базовых образов из `FROM`, добавь его также в доверенные сертификаты Docker Desktop или BuildKit. Docker загружает эти образы до выполнения команд Dockerfile. [Docker и CA](https://docs.docker.com/engine/network/ca-certs/) · [Настройка Go в Nexus](https://help.sonatype.com/en/configure-go-with-nexus.html)
 

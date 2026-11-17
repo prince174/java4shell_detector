@@ -3,6 +3,10 @@ import argparse
 import csv
 import io
 import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
 import time
 from urllib.request import Request, urlopen
 
@@ -12,6 +16,22 @@ ALL_VERSIONS = {
 }
 CANDIDATE_VERSIONS = ALL_VERSIONS - {"17.0.5", "21.0.5"}
 EXPECTED = {"assets": 10, "findings": 10, "candidates": 8, "errors": 0}
+
+
+def verify_build_settings():
+    root = Path(__file__).resolve().parents[1]
+    expected = {"GOPROXY": "https://nexus.example.invalid/repository/go/",
+                "GOSUMDB": "sum.golang.org https://nexus.example.invalid/repository/sumdb/"}
+    env = {key: value for key, value in os.environ.items() if key not in expected}
+    with tempfile.TemporaryDirectory() as tmp:
+        settings = Path(tmp, ".env")
+        for values in ({key: "" for key in expected}, expected):
+            settings.write_text("".join(f"{key}={value}\n" for key, value in values.items()), encoding="utf-8")
+            config = subprocess.check_output(
+                ["docker", "compose", "--env-file", str(settings), "config", "--format", "json"],
+                cwd=root, env=env,
+            )
+            assert json.loads(config)["services"]["inventory"]["build"]["args"] == values
 
 
 def request(base, path, settings=None):
@@ -59,6 +79,7 @@ def main():
     parser.add_argument("--java-majors", default="17")
     parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     args = parser.parse_args()
+    verify_build_settings()
     base = args.url.rstrip("/")
     java_majors = ([8, 17, 21, 25, 27] if args.profile == "java4shell"
                    else sorted({int(major) for major in args.java_majors.split(",")}))

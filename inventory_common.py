@@ -10,25 +10,35 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
+DEFAULT_JAVA_MAJORS = (17,)
 VERSION = re.compile(
     r"(?<![\d.])(?P<major>1[7-9]|2[0-9]|[3-9][0-9]|[5-9]|1[0-6])"
-    r"(?:\.(?P<minor>\d+)\.(?P<patch>\d+)(?:\.\d+)?)?"
+    r"(?:\.(?P<minor>\d+)(?:\.(?P<patch>\d+)(?:\.\d+)?)?)?"
     r"(?:[+_]\d+(?:-LTS)?|-ea(?:\+\d+)?)?(?![\d.])",
     re.IGNORECASE,
 )
 
 
-def classify(value):
-    legacy = re.match(r"^1\.([5-8])(?:\.\d+)?(?:_\d+)?", value)
+def parse_java_majors(value):
+    parts = [part.strip() for part in value.split(",")] if isinstance(value, str) else []
+    if not parts or any(not re.fullmatch(r"[5-9]|[1-9][0-9]", part) for part in parts):
+        raise ValueError("Укажи мажорные версии Java от 5 до 99 через запятую, например 17,21,25,27")
+    return tuple(sorted({int(part) for part in parts}))
+
+
+def classify(value, java_majors=DEFAULT_JAVA_MAJORS):
+    legacy = re.search(r"(?<![\d.])1\.([5-8])(?:\.\d+)?(?:_\d+)?(?![\d.])", value)
     if legacy:
-        return legacy[0], "outside_scope"
+        return legacy[0], "candidate" if int(legacy[1]) in java_majors else "outside_scope"
     match = VERSION.search(value)
     if not match:
         return "", "unknown_version"
     version = match[0]
     major, minor, patch = match.groups()
-    if major != "17":
+    if int(major) not in java_majors:
         return version, "outside_scope"
+    if major != "17":
+        return version, "candidate"
     if patch is None:
         return version, "unknown_version"
     status = "candidate" if (int(minor), int(patch)) >= (0, 6) else "outside_scope"
@@ -103,7 +113,7 @@ def write_reports(output, scope, assets, findings, errors):
     candidates = [row for row in findings if row["status"] == "candidate"]
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "rule": "Java 17, version >= 17.0.6 within major 17; inventory criterion",
+        "rule": "Selected Java major versions; Java 17 requires version >= 17.0.6",
         "scope": scope,
         "summary": {"assets": len(assets), "findings": len(findings),
                     "candidates": len(candidates), "errors": len(errors)},

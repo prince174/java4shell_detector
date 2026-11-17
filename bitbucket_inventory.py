@@ -8,7 +8,7 @@ import re
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
-from inventory_common import Api, classify, load_env, write_reports
+from inventory_common import Api, DEFAULT_JAVA_MAJORS, classify, load_env, parse_java_majors, write_reports
 
 API_ROOT = "/rest/api/latest"
 ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
@@ -68,21 +68,21 @@ def safe_version(value):
     return value if re.fullmatch(r"[A-Za-z0-9._+\-]{1,100}", value) else ""
 
 
-def version_value(value):
+def version_value(value, java_majors):
     cleaned = value.strip().strip("'\"")
     if VARIABLE.search(cleaned) or "{{" in cleaned:
         return "", "unknown_version"
     if re.search(r"(?<!\d)1\.8(?:[._]|$)", cleaned):
-        return "1.8", "outside_scope"
+        return classify(cleaned, java_majors)
     compatibility = re.search(r"\bVERSION_(\d+)\b", cleaned)
     if compatibility:
-        return classify(compatibility[1])
+        return classify(compatibility[1], java_majors)
     if re.match(r"^\d+(?:$|[.+_-])", cleaned) or NUMERIC_VALUE.search(cleaned):
-        return classify(cleaned)
+        return classify(cleaned, java_majors)
     return "", "unknown_version"
 
 
-def declarations(path, text):
+def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     name = PurePosixPath(path).name.lower()
     lines = text.splitlines()
     dockerfile = name.startswith(("dockerfile", "containerfile")) or name.endswith(
@@ -106,9 +106,9 @@ def declarations(path, text):
             tag = leaf.partition(":")[2]
             hint = JAVA_TAG_VERSION.search(tag)
             inferred = tag[hint.end():] if hint else tag
-            version, status = classify(inferred) if not VARIABLE.search(ref) and "{{" not in ref else ("", "unknown_version")
+            version, status = classify(inferred, java_majors) if not VARIABLE.search(ref) and "{{" not in ref else ("", "unknown_version")
         else:
-            version, status = version_value(resolved)
+            version, status = version_value(resolved, java_majors)
         return {"role": role, "evidence": f"{path} ({evidence})", "line": line,
                 "version": version, "declared_version": safe_version(version), "status": status}
 
@@ -283,7 +283,9 @@ def scan_commit(api, args, asset, findings, errors, *, cloud, base):
                 continue
             try:
                 data = api.read(root + quote(path), params, args.max_file_bytes, accept="*/*")
-                findings.extend({**asset, **row} for row in declarations(path, data.decode("utf-8-sig")))
+                findings.extend({**asset, **row} for row in declarations(
+                    path, data.decode("utf-8-sig"), args.java_majors
+                ))
             except ERRORS as exc:
                 errors.append({**asset, "file": path, "error": str(exc)})
     except ERRORS as exc:
@@ -297,6 +299,8 @@ def main():
     parser.add_argument("--url")
     parser.add_argument("--provider", choices=("cloud", "datacenter"))
     parser.add_argument("--workspace")
+    parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
+                        help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")
     parser.add_argument("--output", default="reports/bitbucket")
     parser.add_argument("--project", action="append", default=[])
     parser.add_argument("--branch", action="append", default=[],
@@ -337,7 +341,7 @@ def main():
     return write_reports(args.output, {"source": "bitbucket", "provider": args.provider,
                                        "workspace": args.workspace if args.provider == "cloud" else None, "url": args.url,
                                        "projects": args.project, "additional_branches": args.branch,
-                                       "request_delay_seconds": args.delay},
+                                       "request_delay_seconds": args.delay, "java_majors": args.java_majors},
                          *inventory_function(api, args))
 
 

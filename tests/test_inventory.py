@@ -12,11 +12,12 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+from unittest.mock import patch
 
 import bitbucket_inventory as bitbucket
 import nexus_inventory as nexus
-from inventory_common import Api, classify, write_reports
-from web_app import make_flags, stats, update_stats
+from inventory_common import Api, classify, parse_java_majors, write_reports
+from web_app import make_flags, results_page, stats, update_stats
 
 
 VERSIONS = {
@@ -34,11 +35,24 @@ def tar_fixture(path, files):
 
 
 def bb_args(**overrides):
-    return argparse.Namespace(**({"project": [], "branch": [], "max_file_bytes": 1024,
+    return argparse.Namespace(**({"project": [], "branch": [], "max_file_bytes": 1024, "java_majors": (17,),
                                   "workspace": "test"} | overrides))
 
 
 class VersionTests(unittest.TestCase):
+    def test_selected_majors_preserve_java_17_threshold(self):
+        majors = parse_java_majors("27, 17, 21, 25,21")
+        self.assertEqual(majors, (17, 21, 25, 27))
+        for version, status in (("17.0.5", "outside_scope"), ("17", "unknown_version"),
+                                ("17.0.6", "candidate"), ("21", "candidate"),
+                                ("25.0.1", "candidate"), ("27-ea+3", "candidate"),
+                                ("11.0.22", "outside_scope")):
+            self.assertEqual(classify(version, majors)[1], status, version)
+        self.assertEqual(classify("1.8.0_252", (8,))[1], "candidate")
+        for invalid in ("", "17,25.0", "17,,21", "123"):
+            with self.assertRaises(ValueError):
+                parse_java_majors(invalid)
+
     def test_java_version_policy(self):
         for version, status in VERSIONS.items():
             with self.subTest(version=version):
@@ -200,7 +214,7 @@ class NexusTests(unittest.TestCase):
         registry = Registry()
         with tempfile.TemporaryDirectory() as directory:
             assets, findings, errors = nexus.inventory(
-                NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False),
+                NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,)),
                 {"hosted": "registry.example:5000"}, directory)
         self.assertFalse(errors)
         self.assertEqual(registry.exported, [tagged_digest, untagged_digest])
@@ -237,6 +251,36 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_results_pages_group_repositories_and_encode_links(self):
+        findings = [
+            {"repository": f"workspace/repo-{index:02}", "evidence": "ci config/pom.xml (java.version)",
+             "commit": "abc", "line": 5, "status": "candidate" if index <= 11 else "outside_scope"}
+            for index in range(1, 24)
+        ]
+        findings.append(findings[0].copy())
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp)
+            write_reports(output / "bitbucket" / "run", {
+                "source": "bitbucket", "provider": "cloud", "url": "https://api.bitbucket.org/2.0",
+                "java_majors": [17, 21],
+            }, [], findings, [])
+            write_reports(output / "nexus" / "run", {"source": "nexus", "url": "http://host.docker.internal:18182"},
+                          [], [{"repository": "test-repo", "image": "foo/image", "reference": "25",
+                                "status": "candidate"}], [])
+            with patch("web_app.OUTPUT", output):
+                first = results_page("bitbucket", 1, False)
+                second = results_page("bitbucket", 2, True)
+                last = results_page("bitbucket", 3, False)
+                image, = results_page("nexus", 1, False)["items"]
+        self.assertEqual((len(first["items"]), len(last["items"]), first["pages"]), (10, 3, 3))
+        self.assertEqual((second["total"], len(second["items"])), (11, 1))
+        self.assertEqual(first["javaMajors"], [17, 21])
+        group = first["items"][0]
+        self.assertEqual(group["url"], "https://bitbucket.org/workspace/repo-01")
+        self.assertEqual(len(group["findings"]), 2)
+        self.assertTrue(group["findings"][0]["url"].endswith("/src/abc/ci%20config/pom.xml#lines-5"))
+        self.assertEqual(image["url"], "http://127.0.0.1:18182/#browse/browse:test-repo:v2%2Ffoo%2Fimage%2Fmanifests%2F25")
+
     def test_progress_aggregation_and_fractional_delay(self):
         row = stats()
         update_stats(row, {"seconds": 0.05, "ok": True, "operation": "/repos", "http_status": 200})
@@ -246,6 +290,7 @@ class ConsoleTests(unittest.TestCase):
         self.assertAlmostEqual(row["total"], 0.15)
         self.assertEqual(make_flags("bitbucket", {"provider": "cloud", "delay": 0.1, "projects": "A, B"}),
                          ["--delay=0.1", "--provider=cloud", "--project=A", "--project=B"])
+        self.assertIn("--java-majors=21,27", make_flags("nexus", {"javaMajors": "27,21"}))
         with self.assertRaises(ValueError):
             make_flags("nexus", {"delay": "nan"})
 

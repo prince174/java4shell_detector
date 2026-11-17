@@ -25,6 +25,14 @@ dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
 .hint,output{font-size:.82rem;overflow-wrap:anywhere}
 h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap:15px}
 [hidden]{display:none!important}.error{color:#ffb3ac}
+.tabs,.pagination{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:0 0 16px}
+.tabs button,.pagination button{background:transparent;color:var(--ink);border:1px solid var(--line)}
+.tabs button[aria-pressed=true]{border-color:var(--accent);color:var(--accent)}
+.pagination{margin:16px 0 0}
+.result-list{padding:0;margin:12px 0 0;list-style:none}
+.result-list>li{padding:11px 0;border-top:1px solid var(--line);overflow-wrap:anywhere}
+.result-list details{margin-top:6px}.result-list summary{cursor:pointer;color:var(--muted)}
+.result-list details ul{padding-left:22px}
 @media(max-width:760px){main{margin:25px auto}.grid{grid-template-columns:1fr}form{min-height:0}}
 </style>
 </head>
@@ -32,15 +40,21 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 <main>
 <header>
 <h1>Инвентаризация Java</h1>
-<p>Java 17 от 17.0.6 включительно · <a href="/architecture">Как работает опрос</a></p>
+<p><a href="/architecture">Как работает опрос</a></p>
 </header>
-<div class="grid">
+<nav class="tabs" aria-label="Раздел">
+<button data-view="scan" aria-pressed="true">Опрос</button>
+<button data-view="bitbucket" aria-pressed="false">Репозитории Bitbucket</button>
+<button data-view="nexus" aria-pressed="false">Образы Nexus</button>
+</nav>
+<div class="grid" id="scan">
 <section id="bitbucket">
 <h2>Bitbucket</h2>
 <form>
 <label>Платформа <select name="provider"><option value="datacenter">Data Center</option><option value="cloud">Cloud</option></select></label>
 <label>Проекты <input name="projects" placeholder="Все доступные или APP, INFRA"></label>
 <label>Дополнительные ветки <input name="branches" placeholder="release/*, support/*"></label>
+<label>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required></label>
 <label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
 <button>Опросить Bitbucket</button>
 </form>
@@ -50,6 +64,7 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 <h2>Nexus Docker</h2>
 <form>
 <label>Docker-репозитории <input name="repositories" placeholder="Все hosted или docker-prod, docker-stage"></label>
+<label>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required></label>
 <label class="check"><input name="includeProxy" type="checkbox"> Включить закэшированные образы proxy</label>
 <label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
 <button>Опросить Nexus</button>
@@ -57,9 +72,20 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 <div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><div class="reports"></div></div>
 </section>
 </div>
+<section id="results" hidden>
+<h2 id="result-title"></h2>
+<label class="check"><input id="candidates-only" type="checkbox"> Только кандидаты</label>
+<p class="hint" id="result-status" aria-live="polite"></p>
+<ul class="result-list" id="result-list"></ul>
+<div class="pagination" aria-label="Страницы результатов">
+<button id="prev-page" disabled>Назад</button>
+<span id="page-number"></span>
+<button id="next-page" disabled>Далее</button>
+</div>
+</section>
 </main>
 <script>
-const sections = [...document.querySelectorAll('section')];
+const sections = [...document.querySelectorAll('#scan section')];
 const stateNames = {running:'Выполняется', done:'Завершён', partial:'Завершён с ошибками', failed:'Ошибка запуска'};
 const seconds = value => value == null ? '—' : value.toFixed(3) + ' с';
 function element(tag, value) {
@@ -67,6 +93,92 @@ function element(tag, value) {
   node.textContent = value;
   return node;
 }
+const resultPanel = document.querySelector('#results');
+const resultList = document.querySelector('#result-list');
+const resultStatus = document.querySelector('#result-status');
+const candidatesOnly = document.querySelector('#candidates-only');
+const previous = document.querySelector('#prev-page');
+const next = document.querySelector('#next-page');
+const pageNumber = document.querySelector('#page-number');
+const seenReports = {};
+let view = 'scan';
+let resultPage = 1;
+let resultRequest = 0;
+
+function resultLink(text, url) {
+  const link = element(url ? 'a' : 'span', text);
+  if (url) {
+    link.href = url;
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+  }
+  return link;
+}
+function resultItem(item) {
+  const row = element('li', '');
+  row.append(resultLink(item.title, item.url));
+  if (view === 'nexus') row.append(element('span', ' · ' + item.repository));
+  const details = element('details', '');
+  details.append(element('summary', 'Находок: ' + item.findings.length +
+    ' · кандидатов: ' + item.findings.filter(finding => finding.status === 'candidate').length));
+  const list = element('ul', '');
+  const labels = {candidate:'кандидат', outside_scope:'вне выбора', unknown_version:'версия неизвестна'};
+  for (const finding of item.findings) {
+    const line = element('li', '');
+    const evidence = finding.evidence + (finding.line ? ':' + finding.line : '');
+    const context = [finding.branch, finding.commit, finding.platform, finding.digest].filter(Boolean);
+    line.append(element('p', [finding.version || '—', labels[finding.status],
+      finding.role, finding.vendor].filter(Boolean).join(' · ')), resultLink(evidence, finding.url));
+    if (context.length) line.append(element('p', context.join(' · ')));
+    list.append(line);
+  }
+  details.append(list);
+  row.append(details);
+  return row;
+}
+async function showResults() {
+  if (view === 'scan') return;
+  const token = ++resultRequest;
+  previous.disabled = next.disabled = true;
+  resultList.replaceChildren();
+  pageNumber.textContent = '';
+  resultStatus.textContent = 'Загрузка…';
+  try {
+    const query = new URLSearchParams({page:resultPage, candidates:candidatesOnly.checked ? '1' : '0'});
+    const response = await fetch('/api/results/' + view + '?' + query);
+    const data = await response.json();
+    if (token !== resultRequest) return;
+    if (!response.ok) throw new Error(data.error);
+    resultPage = data.page;
+    if (!data.generatedAt) {
+      resultStatus.textContent = 'Сначала запусти опрос этого источника.';
+      return;
+    }
+    resultStatus.textContent = 'Объектов: ' + data.total + ' · Java: ' + data.javaMajors.join(', ') +
+      ' · Опрос: ' + new Date(data.generatedAt).toLocaleString('ru-RU');
+    if (!data.items.length) resultStatus.textContent += ' · Совпадений нет';
+    resultList.replaceChildren(...data.items.map(resultItem));
+    pageNumber.textContent = data.page + ' / ' + data.pages;
+    previous.disabled = data.page <= 1;
+    next.disabled = data.page >= data.pages;
+  } catch (error) {
+    if (token === resultRequest) resultStatus.textContent = error.message;
+  }
+}
+const tabs = [...document.querySelectorAll('.tabs button')];
+for (const tab of tabs) tab.addEventListener('click', () => {
+  ++resultRequest;
+  view = tab.dataset.view;
+  resultPage = 1;
+  for (const item of tabs) item.setAttribute('aria-pressed', String(item === tab));
+  document.querySelector('#scan').hidden = view !== 'scan';
+  resultPanel.hidden = view === 'scan';
+  document.querySelector('#result-title').textContent = tab.textContent;
+  showResults();
+});
+candidatesOnly.addEventListener('change', () => { resultPage = 1; showResults(); });
+previous.addEventListener('click', () => { resultPage--; showResults(); });
+next.addEventListener('click', () => { resultPage++; showResults(); });
 function showStats(target, title, data) {
   target.append(element('h3', title));
   const list = document.createElement('dl');
@@ -112,7 +224,15 @@ async function refresh() {
   if (!response.ok) throw new Error('Статистика сервиса недоступна');
   const jobs = await response.json();
   if (requestRevision !== revision) return;
-  for (const section of sections) if (jobs[section.id]) render(section, jobs[section.id]);
+  for (const section of sections) {
+    const job = jobs[section.id];
+    if (!job) continue;
+    render(section, job);
+    if (job.reports.includes('inventory.json') && seenReports[section.id] !== job.id) {
+      seenReports[section.id] = job.id;
+      if (view === section.id) { resultPage = 1; showResults(); }
+    }
+  }
 }
 for (const section of sections) {
   const form = section.querySelector('form');

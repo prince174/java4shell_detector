@@ -7,12 +7,13 @@ import subprocess
 import sys
 import threading
 import time
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from uuid import uuid4
 
-from inventory_common import load_env
+from inventory_common import load_env, parse_java_majors
 
 ROOT = Path(__file__).resolve().parent
 SCRIPTS = {"bitbucket": "bitbucket_inventory.py", "nexus": "nexus_inventory.py"}
@@ -20,6 +21,7 @@ REPORTS = {"inventory.json": "application/json", "candidates.csv": "text/csv; ch
 LOCK = threading.Lock()
 JOBS = {}
 OUTPUT = Path(os.getenv("INVENTORY_REPORT_DIR", str(ROOT / "reports")))
+PAGE_SIZE = 10
 
 
 def stats():
@@ -76,6 +78,9 @@ def make_flags(source, settings):
     if not math.isfinite(delay) or delay < 0:
         raise ValueError("Задержка должна быть числом от нуля")
     flags = [f"--delay={delay}"]
+    if "javaMajors" in settings:
+        majors = parse_java_majors(settings["javaMajors"])
+        flags.append("--java-majors=" + ",".join(map(str, majors)))
     if source == "bitbucket":
         provider = settings.get("provider", os.getenv("BITBUCKET_PROVIDER", "datacenter"))
         if provider not in ("cloud", "datacenter"):
@@ -91,6 +96,73 @@ def make_flags(source, settings):
     if source == "nexus" and settings.get("includeProxy") is True:
         flags.append("--include-proxy")
     return flags
+
+
+def browser_base(value):
+    url = urlsplit(value)
+    if url.scheme not in {"http", "https"} or not url.hostname or url.username or url.password:
+        return ""
+    if url.hostname == "host.docker.internal":
+        url = url._replace(netloc=f"127.0.0.1:{url.port}" if url.port else "127.0.0.1")
+    return url._replace(query="", fragment="").geturl().rstrip("/")
+
+
+@lru_cache(maxsize=4)
+def result_groups(path, stamp):
+    report = json.loads(path.read_text(encoding="utf-8"))
+    scope = report["scope"]
+    source = scope["source"]
+    cloud = scope.get("provider") == "cloud"
+    override = "BITBUCKET_WEB_URL" if source == "bitbucket" else "NEXUS_WEB_URL"
+    base = browser_base(os.getenv(override) or scope["url"]) if not cloud else "https://bitbucket.org"
+    groups = {}
+    for row in report["findings"]:
+        repository = row["repository"]
+        evidence_url = ""
+        if source == "nexus":
+            image = row["image"]
+            reference = row.get("reference") or row.get("tag") or row["digest"]
+            key = (repository, image, reference)
+            separator = "@" if reference.startswith("sha256:") else ":"
+            title = f"{image}{separator}{reference}"
+            asset_path = quote(f"v2/{image}/manifests/{reference}", safe="")
+            url = f"{base}/#browse/browse:{quote(repository, safe='')}:{asset_path}" if base else ""
+        else:
+            key = (repository,)
+            title = repository
+            owner, slug = (quote(part, safe="") for part in repository.split("/", 1))
+            root = f"{base}/{owner}/{slug}" if cloud else f"{base}/projects/{owner}/repos/{slug}"
+            url = root if cloud else root + "/browse" if base else ""
+            file = row.get("file") or row["evidence"].rpartition(" (")[0]
+            if url and file and row.get("commit"):
+                path_name = quote(file)
+                if cloud:
+                    evidence_url = f"{root}/src/{quote(row['commit'], safe='')}/{path_name}#lines-{row['line']}"
+                else:
+                    revision = urlencode({"at": row["commit"]})
+                    evidence_url = f"{root}/browse/{path_name}?{revision}#{row['line']}"
+        group = groups.setdefault(key, {"title": title, "repository": repository, "url": url, "findings": []})
+        group["findings"].append({**row, "url": evidence_url})
+    return [groups[key] for key in sorted(groups)], scope.get("java_majors", [17]), report["generated_at"]
+
+
+def results_page(source, page, candidates):
+    if page < 1:
+        raise ValueError("Номер страницы должен быть положительным")
+    paths = ((path.stat().st_mtime_ns, path) for path in (OUTPUT / source).glob("*/inventory.json")
+             if (path.parent / "candidates.csv").is_file())
+    latest = max(paths, default=None)
+    if latest is None:
+        return {"items": [], "total": 0, "page": 1, "pages": 1, "generatedAt": None}
+    stamp, path = latest
+    groups, majors, generated_at = result_groups(path, stamp)
+    if candidates:
+        groups = [group for group in groups if any(row["status"] == "candidate" for row in group["findings"])]
+    pages = max(1, (len(groups) + PAGE_SIZE - 1) // PAGE_SIZE)
+    page = min(page, pages)
+    start = (page - 1) * PAGE_SIZE
+    return {"items": groups[start:start + PAGE_SIZE], "total": len(groups), "page": page,
+            "pages": pages, "javaMajors": majors, "generatedAt": generated_at}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -110,7 +182,8 @@ class Handler(BaseHTTPRequestHandler):
                      "application/json; charset=utf-8")
 
     def do_GET(self):
-        path = urlsplit(self.path).path
+        request = urlsplit(self.path)
+        path = request.path
         if path == "/":
             self.respond(200, (ROOT / "index.html").read_bytes(), "text/html; charset=utf-8")
             return
@@ -128,6 +201,19 @@ class Handler(BaseHTTPRequestHandler):
                     job["elapsed"] = time.monotonic() - job["started"]
                 del job["started"]
             self.json_response(200, data)
+            return
+        source = path.removeprefix("/api/results/")
+        if path.startswith("/api/results/") and source in SCRIPTS:
+            query = parse_qs(request.query)
+            try:
+                page = int(query.get("page", ["1"])[0])
+                data = results_page(source, page, query.get("candidates") == ["1"])
+            except ValueError as exc:
+                self.json_response(400, {"error": str(exc)})
+            except (KeyError, OSError):
+                self.json_response(500, {"error": "Отчёт недоступен"})
+            else:
+                self.json_response(200, data)
             return
         parts = path.strip("/").split("/")
         if len(parts) == 4 and parts[0] == "reports":

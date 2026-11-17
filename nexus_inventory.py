@@ -14,7 +14,9 @@ import time
 from pathlib import Path
 from urllib.parse import urlsplit
 
-from inventory_common import Api, classify, load_env, report_progress, write_reports
+from inventory_common import (
+    Api, DEFAULT_JAVA_MAJORS, classify, load_env, parse_java_majors, report_progress, write_reports,
+)
 
 API_ROOT = "/service/rest/v1"
 ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError, tarfile.TarError)
@@ -143,7 +145,7 @@ def path_name(name):
     return posixpath.normpath(name.replace("\\", "/")).lstrip("/")
 
 
-def java_files(archive_path):
+def java_files(archive_path, java_majors=DEFAULT_JAVA_MAJORS):
     releases = {}
     runtime_paths = set()
     with tarfile.open(archive_path, mode="r|*") as archive:
@@ -168,7 +170,7 @@ def java_files(archive_path):
                    and (marker[len(prefix):].lower().startswith(("bin/", "lib/", "jre/")))}
         if markers:
             matched.update(markers)
-            version, status = classify(raw)
+            version, status = classify(raw, java_majors)
             results.append({"role": "image_runtime", "vendor": vendor, "version": version,
                             "declared_version": raw, "status": status, "evidence": "/" + path,
                             "runtime_files": ["/" + marker for marker in sorted(markers)]})
@@ -233,7 +235,7 @@ def inventory(api, registry, args, mappings, workdir):
                             try:
                                 if digest not in scans:
                                     registry.run("export", f"{name}@{digest}", insecure, str(archive_path))
-                                    scans[digest] = java_files(archive_path)
+                                    scans[digest] = java_files(archive_path, args.java_majors)
                                 rows = scans[digest]
                                 covered.add((image, digest))
                                 assets.append({**asset, "status": "scanned", "findings": len(rows)})
@@ -263,6 +265,8 @@ def inventory(api, registry, args, mappings, workdir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url")
+    parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
+                        help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")
     parser.add_argument("--output", default="reports/nexus")
     parser.add_argument("--registry", action="append", default=[], metavar="REPO=ENDPOINT")
     parser.add_argument("--repository", action="append", default=[])
@@ -314,6 +318,7 @@ def main():
                                        "repositories": args.repository,
                                        "include_proxy": args.include_proxy,
                                        "request_delay_seconds": args.delay,
+                                       "java_majors": args.java_majors,
                                        "registry_mappings": mappings}, *result)
 
 

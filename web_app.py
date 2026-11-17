@@ -42,14 +42,10 @@ def redact_diagnostic(value):
 
 def diagnostic(source, job, value):
     line = redact_diagnostic(value)
-    with LOCK:
-        if line in job["diagnostics"]:
-            return
-        if len(job["diagnostics"]) < DIAGNOSTIC_LIMIT:
-            job["diagnostics"].append(line)
-        else:
-            return
     LOGGER.debug("[%s %s] %s", source, job["id"], line)
+    with LOCK:
+        if line not in job["diagnostics"] and len(job["diagnostics"]) < DIAGNOSTIC_LIMIT:
+            job["diagnostics"].append(line)
 
 
 def stats():
@@ -85,11 +81,17 @@ def run_job(source, job, flags):
                     event["operation"] = redact_diagnostic(event["operation"].split("?", 1)[0])
                     with LOCK:
                         update_stats(job[event["event"]], event)
-                    if job["debug"] and not event["ok"]:
-                        status = "ошибка"
+                    if job["debug"]:
+                        operation = event["operation"]
+                        status = "OK" if event["ok"] else "ошибка"
                         if event["event"] == "http":
+                            operation = f"GET {event.get('target', '')}{operation}"
                             status = event.get("http_status") or "нет HTTP-ответа"
-                        diagnostic(source, job, f"{event['operation']} — {status} ({event['seconds']} с)")
+                        detail = f"{operation} — {status} ({event['seconds']} с)"
+                        if event["ok"]:
+                            LOGGER.debug("[%s %s] %s", source, job["id"], redact_diagnostic(detail))
+                        else:
+                            diagnostic(source, job, detail)
                 elif line.strip():
                     with LOCK:
                         job["messages"] = [*job["messages"][-9:], redact_diagnostic(line.rstrip())]

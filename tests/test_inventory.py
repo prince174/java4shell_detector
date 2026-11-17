@@ -192,6 +192,20 @@ class BitbucketTests(unittest.TestCase):
 
 
 class NexusTests(unittest.TestCase):
+    def test_requested_non_docker_repository_has_distinct_diagnostic(self):
+        class NexusApi:
+            def json(self, path):
+                if path != "/service/rest/v1/repositories":
+                    raise AssertionError(path)
+                return [{"name": "maven-hosted", "format": "maven2", "type": "hosted"}]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            args = argparse.Namespace(repository=["maven-hosted", "unlisted"], include_proxy=False)
+            assets, findings, errors = nexus.inventory(NexusApi(), None, args, {}, tmp)
+        self.assertEqual((assets, findings), ([], []))
+        self.assertIn("format is 'maven2'", errors[0]["error"])
+        self.assertIn("missing from the Nexus catalog", errors[1]["error"])
+
     def test_java4shell_report_reads_graalvm_product_version_separately(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
             archive = Path(directory, "rootfs.tar")
@@ -286,6 +300,30 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_debug_logs_every_operation_without_url_parameters(self):
+        job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),
+               "messages": [], "diagnostics": [], "provider": "nexus", "debug": True}
+        events = [
+            {"event": "http", "operation": "/repositories?continuationToken=private", "http_status": 200,
+             "target": "https://nexus.example.invalid", "ok": True, "seconds": 0.02},
+            {"event": "registry", "operation": "export registry.example.invalid/demo",
+             "ok": True, "seconds": 1.5},
+            *[{"event": "http", "operation": "/assets", "http_status": 403, "ok": False,
+               "seconds": 0.1} for _ in range(22)],
+        ]
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("inventory", level="DEBUG") as log:
+            with patch("web_app.OUTPUT", Path(tmp)), patch("web_app.subprocess.Popen") as popen:
+                process = popen.return_value.__enter__.return_value
+                process.stdout = [json.dumps(event) for event in events]
+                process.wait.return_value = 2
+                run_job("nexus", job, [])
+        output = "\n".join(log.output)
+        self.assertIn("GET https://nexus.example.invalid/repositories", output)
+        self.assertIn("export registry.example.invalid/demo", output)
+        self.assertNotIn("continuationToken", output)
+        self.assertEqual(output.count("GET /assets"), 22)
+        self.assertEqual(len(job["diagnostics"]), 1)
+
     def test_datacenter_failure_reports_cause_and_logs_redacted_diagnostics(self):
         job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),
                "messages": [], "diagnostics": [], "provider": "datacenter", "debug": True}

@@ -113,6 +113,7 @@ class Api:
         self.opener = build_opener(NoRedirect())
 
     def read(self, path, params=None, max_bytes=32 * 1024 * 1024, accept="application/json"):
+        operation = path.split("?", 1)[0]
         query = "?" + urlencode(params) if params else ""
         headers = {"Accept": accept}
         if self.authorization:
@@ -131,16 +132,17 @@ class Api:
         except HTTPError as exc:
             status = exc.code
             exc.close()
-            raise RuntimeError(f"HTTP {exc.code} at {path}") from None
+            raise RuntimeError(f"HTTP {exc.code} at {operation}") from None
         except (URLError, OSError) as exc:
             status = None
-            raise RuntimeError(f"Request failed at {path}: {exc}") from None
+            raise RuntimeError(f"Request failed at {operation}: {exc}") from None
         finally:
             self.finished_at = time.monotonic()
             report_progress(self.progress, "http", self.finished_at - started_at,
-                            status is not None and 200 <= status < 300, path, http_status=status)
+                            status is not None and 200 <= status < 300, operation,
+                            http_status=status, target=self.base)
         if len(data) > max_bytes:
-            raise ValueError(f"Response exceeds {max_bytes} bytes at {path}")
+            raise ValueError(f"Response exceeds {max_bytes} bytes at {operation}")
         return data
 
     def json(self, path, params=None):

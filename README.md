@@ -78,7 +78,7 @@ Dependency-Track покажет JVM, если в него загружен SBOM 
 
 ## Проверка
 
-Ошибки опроса отображаются в GUI под счётчиками запросов. Для логов Compose переменная `INVENTORY_LOG_LEVEL` в `.env` принимает `DEBUG` (по умолчанию), `INFO`, `WARNING`, `ERROR` или `CRITICAL`. После смены уровня пересоздай контейнер и смотри `docker compose logs -f inventory`. Код `202` для `POST /api/start/bitbucket` означает, что опрос принят. Его состояние и диагностику показывает `GET /api/status`.
+Ошибки опроса отображаются в GUI под счётчиками запросов. Для логов Compose переменная `INVENTORY_LOG_LEVEL` в `.env` принимает `DEBUG` (по умолчанию), `INFO`, `WARNING`, `ERROR` или `CRITICAL`. На уровне `DEBUG` в логах видны все REST GET и операции `crane` с результатом и временем. Параметры URL, заголовки авторизации и тела ответов в трассировку не входят. После смены уровня пересоздай контейнер и смотри `docker compose logs -f --tail=10`. Код `202` для `POST /api/start/bitbucket` означает, что опрос принят. Его состояние и диагностику показывает `GET /api/status`.
 
 ```powershell
 python -m unittest discover -s tests -v

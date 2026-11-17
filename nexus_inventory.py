@@ -199,15 +199,18 @@ def inventory(api, registry, args, mappings, workdir):
     archive_path = Path(workdir, "rootfs.tar")
     try:
         catalog = api.json(API_ROOT + "/repositories")
-        repositories = {repo["name"]: repo for repo in catalog if repo["format"] == "docker"}
+        repositories = {repo["name"]: repo for repo in catalog}
         requested = set(args.repository) if args.repository else {
-            name for name, repo in repositories.items() if repo["type"] in
+            name for name, repo in repositories.items() if repo["format"] == "docker" and repo["type"] in
             ({"hosted", "proxy"} if args.include_proxy else {"hosted"})
         }
         for repository in sorted(requested):
             try:
                 if repository not in repositories:
-                    raise ValueError("Docker repository missing or inaccessible")
+                    raise ValueError("Repository missing from the Nexus catalog or inaccessible to this account")
+                repo_format = repositories[repository]["format"]
+                if repo_format != "docker":
+                    raise ValueError(f"Nexus repository format is {repo_format!r}. Choose a repository with format 'docker'.")
                 if repositories[repository]["type"] not in {"hosted", "proxy"}:
                     raise ValueError("Specify group member repositories individually")
                 if repository not in mappings:

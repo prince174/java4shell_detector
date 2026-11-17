@@ -107,7 +107,7 @@ class Registry:
             raise RuntimeError(f"crane {command} failed for {ref} ({result.returncode}): {detail[:500]}")
         return result.stdout
 
-    def manifests(self, name, digest, insecure, platform=None, chain=()):
+    def manifests(self, name, digest, insecure, platform=None, chain=(), *, on_error=None):
         if not DIGEST.fullmatch(digest) or digest in chain or len(chain) >= 8:
             raise ValueError(f"Invalid or recursive manifest digest: {digest}")
         ref = f"{name}@{digest}"
@@ -119,8 +119,13 @@ class Registry:
                         or descriptor.get("artifactType")):
                     continue
                 child_platform = descriptor.get("platform") or platform
-                yield from self.manifests(name, descriptor["digest"], insecure,
-                                          child_platform, (*chain, digest))
+                try:
+                    yield from self.manifests(name, descriptor["digest"], insecure,
+                                              child_platform, (*chain, digest), on_error=on_error)
+                except ERRORS as exc:
+                    if on_error is None:
+                        raise
+                    on_error(descriptor.get("digest"), child_platform, exc)
         elif "layers" in manifest and "config" in manifest:
             if manifest.get("artifactType") or not manifest["config"].get("mediaType", "").endswith(
                 ("container.image.v1+json", "image.config.v1+json")
@@ -240,7 +245,17 @@ def inventory(api, registry, args, mappings, workdir):
                             index_digest = reference
                         else:
                             index_digest = registry.run("digest", f"{name}:{reference}", insecure).decode().strip()
-                        for digest, platform in registry.manifests(name, index_digest, insecure):
+                        def record_manifest_error(digest, platform, error):
+                            descriptor = platform or {}
+                            label = "/".join(descriptor[key] for key in ("os", "architecture", "variant")
+                                             if descriptor.get(key))
+                            asset = {**location, "index_digest": index_digest, "digest": digest,
+                                     "platform": label, "status": "error"}
+                            assets.append(asset)
+                            errors.append({**asset, "stage": "read_platform_manifest", "error": str(error)})
+
+                        for digest, platform in registry.manifests(name, index_digest, insecure,
+                                                                    on_error=record_manifest_error):
                             count += 1
                             asset = {**location, "index_digest": index_digest, "digest": digest, "platform": platform}
                             try:
@@ -256,7 +271,7 @@ def inventory(api, registry, args, mappings, workdir):
                                 errors.append({**asset, "error": str(exc)})
                             finally:
                                 archive_path.unlink(missing_ok=True)
-                        if not count:
+                        if not count and len(errors) == errors_before:
                             assets.append({**location, "index_digest": index_digest, "status": "no_image_manifests"})
                         if len(errors) == errors_before and count:
                             covered.add((image, index_digest))

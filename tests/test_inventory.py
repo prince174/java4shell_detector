@@ -289,7 +289,7 @@ class NexusTests(unittest.TestCase):
                 self.exported.append(ref.rsplit("@", 1)[1])
                 tar_fixture(options[0], {"jre/release": b'JAVA_VERSION="17.0.10"', "jre/bin/java": b"test"})
 
-            def manifests(self, name, digest, insecure):
+            def manifests(self, name, digest, insecure, *, on_error=None):
                 yield digest, "linux/amd64"
 
         registry = Registry()
@@ -329,6 +329,45 @@ class NexusTests(unittest.TestCase):
 
         self.assertEqual([platform for _, platform in FixtureRegistry().manifests(
             "registry.invalid/example", index, False)], ["linux/amd64", "linux/arm64"])
+
+    def test_missing_platform_manifest_preserves_remaining_findings(self):
+        index, missing, available = ("sha256:" + digit * 64 for digit in ("0", "1", "2"))
+
+        class FixtureApi:
+            def json(self, path, params=None):
+                if path.endswith("/repositories"):
+                    return [{"name": "hosted", "format": "docker", "type": "hosted"}]
+                return {"items": [{"path": "v2/service/manifests/latest"}]}
+
+        class FixtureRegistry(nexus.Registry):
+            def __init__(self):
+                pass
+
+            def run(self, command, ref, insecure, *options):
+                if command == "digest":
+                    return index.encode()
+                if command == "export":
+                    tar_fixture(options[0], {"jdk/release": b'JAVA_VERSION="17.0.10"', "jdk/bin/java": b"test"})
+                elif ref.endswith(index):
+                    return json.dumps({"manifests": [
+                        {"digest": digest, "platform": {"os": "linux", "architecture": architecture}}
+                        for digest, architecture in ((missing, "amd64"), (available, "arm64"))
+                    ]}).encode()
+                elif ref.endswith(missing):
+                    raise RuntimeError("manifest returned 404")
+                else:
+                    return b'{"config":{"mediaType":"application/vnd.oci.image.config.v1+json"},"layers":[]}'
+
+        with tempfile.TemporaryDirectory() as directory:
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,))
+            assets, findings, errors = nexus.inventory(
+                FixtureApi(), FixtureRegistry(), args, {"hosted": "registry.invalid"}, directory
+            )
+        self.assertEqual([(row["digest"], row["status"]) for row in assets],
+                         [(missing, "error"), (available, "scanned")])
+        self.assertEqual([(row["platform"], row["status"]) for row in findings],
+                         [("linux/arm64", "candidate")])
+        self.assertEqual((errors[0]["platform"], errors[0]["stage"]), ("linux/amd64", "read_platform_manifest"))
 
 
 class ConsoleTests(unittest.TestCase):

@@ -1,8 +1,10 @@
 """Local web console for the Bitbucket and Nexus inventory jobs."""
 import argparse
 import json
+import logging
 import math
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -22,6 +24,32 @@ LOCK = threading.Lock()
 JOBS = {}
 OUTPUT = Path(os.getenv("INVENTORY_REPORT_DIR", str(ROOT / "reports")))
 PAGE_SIZE = 10
+DIAGNOSTIC_LIMIT = 20
+LOGGER = logging.getLogger("inventory")
+LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
+
+
+def redact_diagnostic(value):
+    message = str(value)
+    for key, secret in os.environ.items():
+        if secret and key.startswith(("BITBUCKET_", "NEXUS_")) and key.endswith(("_TOKEN", "_PASSWORD")):
+            message = message.replace(secret, "[скрыто]").replace(quote(secret, safe=""), "[скрыто]")
+    message = re.sub(r"(https?://)[^/@\s]+@", r"\1[скрыто]@", message)
+    message = re.sub(r"(?i)([?&](?:access_token|token|password|api_key)=)[^&\s]+",
+                     r"\1[скрыто]", message)
+    return message.replace("\r", " ").replace("\n", " ")[:800]
+
+
+def diagnostic(source, job, value):
+    line = redact_diagnostic(value)
+    with LOCK:
+        if line in job["diagnostics"]:
+            return
+        if len(job["diagnostics"]) < DIAGNOSTIC_LIMIT:
+            job["diagnostics"].append(line)
+        else:
+            return
+    LOGGER.debug("[%s %s] %s", source, job["id"], line)
 
 
 def stats():
@@ -43,6 +71,7 @@ def run_job(source, job, flags):
     command = [sys.executable, "-u", str(ROOT / SCRIPTS[source]),
                "--output", str(output), "--progress", *flags]
     code = 1
+    LOGGER.info("[%s %s] started (%s)", source, job["id"], job["provider"])
     try:
         with subprocess.Popen(command, cwd=ROOT, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True, encoding="utf-8",
@@ -52,23 +81,41 @@ def run_job(source, job, flags):
                     event = json.loads(line)
                 except ValueError:
                     event = {}
-                with LOCK:
-                    if event.get("event") in {"http", "registry"}:
+                if event.get("event") in {"http", "registry"}:
+                    event["operation"] = redact_diagnostic(event["operation"].split("?", 1)[0])
+                    with LOCK:
                         update_stats(job[event["event"]], event)
-                    elif line.strip():
-                        job["messages"] = [*job["messages"][-9:], line.rstrip()[:500]]
+                    if job["debug"] and not event["ok"]:
+                        status = "ошибка"
+                        if event["event"] == "http":
+                            status = event.get("http_status") or "нет HTTP-ответа"
+                        diagnostic(source, job, f"{event['operation']} — {status} ({event['seconds']} с)")
+                elif line.strip():
+                    with LOCK:
+                        job["messages"] = [*job["messages"][-9:], redact_diagnostic(line.rstrip())]
             code = process.wait()
     except OSError as exc:
-        with LOCK:
-            job["messages"].append(str(exc))
+        diagnostic(source, job, f"Запуск скрипта — {exc}")
     summary = None
     try:
         if (output / "inventory.json").is_file():
-            summary = json.loads((output / "inventory.json").read_text(encoding="utf-8"))["summary"]
-    except (ValueError, KeyError, OSError):
-        pass
+            report = json.loads((output / "inventory.json").read_text(encoding="utf-8"))
+            summary = report["summary"]
+            for row in report["errors"][:DIAGNOSTIC_LIMIT]:
+                context = " / ".join(str(row[key]) for key in
+                                     ("stage", "repository", "branch", "file", "image", "tag") if row.get(key))
+                diagnostic(source, job, f"{context or source} — {row['error']}")
+    except (ValueError, KeyError, OSError) as exc:
+        diagnostic(source, job, f"Чтение отчёта — {exc}")
+    if summary is None and code:
+        for message in job["messages"]:
+            diagnostic(source, job, message)
+    partial = code == 2 and summary and summary["assets"]
+    level = logging.INFO if code == 0 else logging.WARNING if partial else logging.ERROR
+    LOGGER.log(level, "[%s %s] exit=%s, report_errors=%s",
+               source, job["id"], code, summary["errors"] if summary else "n/a")
     with LOCK:
-        job.update(state={0: "done", 2: "partial" if summary else "failed"}.get(code, "failed"),
+        job.update(state="done" if code == 0 else "partial" if partial else "failed",
                    elapsed=time.monotonic() - job["started"], summary=summary,
                    reports=[name for name in REPORTS if (output / name).is_file()])
 
@@ -78,6 +125,11 @@ def make_flags(source, settings):
     if not math.isfinite(delay) or delay < 0:
         raise ValueError("Задержка должна быть числом от нуля")
     flags = [f"--delay={delay}"]
+    if "profile" in settings:
+        profile = settings["profile"]
+        if profile not in ("inventory", "java4shell"):
+            raise ValueError("Неизвестный профиль поиска")
+        flags.append(f"--profile={profile}")
     if "javaMajors" in settings:
         majors = parse_java_majors(settings["javaMajors"])
         flags.append("--java-majors=" + ",".join(map(str, majors)))
@@ -143,7 +195,8 @@ def result_groups(path, stamp):
                     evidence_url = f"{root}/browse/{path_name}?{revision}#{row['line']}"
         group = groups.setdefault(key, {"title": title, "repository": repository, "url": url, "findings": []})
         group["findings"].append({**row, "url": evidence_url})
-    return [groups[key] for key in sorted(groups)], scope.get("java_majors", [17]), report["generated_at"]
+    return ([groups[key] for key in sorted(groups)], scope.get("java_majors", [17]),
+            scope.get("profile", "inventory"), report["generated_at"])
 
 
 def results_page(source, page, candidates):
@@ -155,14 +208,14 @@ def results_page(source, page, candidates):
     if latest is None:
         return {"items": [], "total": 0, "page": 1, "pages": 1, "generatedAt": None}
     stamp, path = latest
-    groups, majors, generated_at = result_groups(path, stamp)
+    groups, majors, profile, generated_at = result_groups(path, stamp)
     if candidates:
         groups = [group for group in groups if any(row["status"] == "candidate" for row in group["findings"])]
     pages = max(1, (len(groups) + PAGE_SIZE - 1) // PAGE_SIZE)
     page = min(page, pages)
     start = (page - 1) * PAGE_SIZE
     return {"items": groups[start:start + PAGE_SIZE], "total": len(groups), "page": page,
-            "pages": pages, "javaMajors": majors, "generatedAt": generated_at}
+            "pages": pages, "javaMajors": majors, "profile": profile, "generatedAt": generated_at}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -260,8 +313,10 @@ class Handler(BaseHTTPRequestHandler):
         with LOCK:
             active = JOBS.get(source, {}).get("state") == "running"
             if not active:
+                provider = next((flag.partition("=")[2] for flag in flags if flag.startswith("--provider=")), source)
                 job = {"id": uuid4().hex, "state": "running", "started": time.monotonic(),
-                       "http": stats(), "registry": stats(), "messages": [], "reports": []}
+                       "http": stats(), "registry": stats(), "messages": [], "reports": [],
+                       "provider": provider, "diagnostics": [], "debug": LOGGER.isEnabledFor(logging.DEBUG)}
                 JOBS[source] = job
         if active:
             self.json_response(409, {"error": "Опрос этого источника уже выполняется"})
@@ -270,8 +325,8 @@ class Handler(BaseHTTPRequestHandler):
         self.json_response(202, {"id": job["id"]})
 
     def log_message(self, format, *args):
-        if self.path != "/api/status":
-            super().log_message(format, *args)
+        if urlsplit(self.path).path not in {"/api/status", "/api/config"}:
+            LOGGER.debug("%s %s", self.address_string(), redact_diagnostic(format % args))
 
 
 def main():
@@ -280,8 +335,12 @@ def main():
     parser.add_argument("--port", type=int, default=8080)
     args = parser.parse_args()
     load_env()
+    level = os.getenv("INVENTORY_LOG_LEVEL", "DEBUG").strip().upper()
+    if level not in LOG_LEVELS:
+        parser.error("INVENTORY_LOG_LEVEL must be " + ", ".join(LOG_LEVELS))
+    logging.basicConfig(level=level, format="%(levelname)s %(name)s %(message)s", stream=sys.stdout)
     with ThreadingHTTPServer((args.host, args.port), Handler) as server:
-        print(f"Java4Shell listening on {args.host}:{args.port}", flush=True)
+        LOGGER.info("Java4Shell listening on %s:%s", args.host, args.port)
         server.serve_forever()
 
 

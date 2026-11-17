@@ -8,7 +8,10 @@ import re
 from pathlib import PurePosixPath
 from urllib.parse import quote
 
-from inventory_common import Api, DEFAULT_JAVA_MAJORS, classify, load_env, parse_java_majors, write_reports
+from inventory_common import (
+    Api, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, LEGACY_VERSION,
+    classify, load_env, parse_java_majors, write_reports,
+)
 
 API_ROOT = "/rest/api/latest"
 ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
@@ -72,7 +75,7 @@ def version_value(value, java_majors):
     cleaned = value.strip().strip("'\"")
     if VARIABLE.search(cleaned) or "{{" in cleaned:
         return "", "unknown_version"
-    if re.search(r"(?<!\d)1\.8(?:[._]|$)", cleaned):
+    if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)
     compatibility = re.search(r"\bVERSION_(\d+)\b", cleaned)
     if compatibility:
@@ -100,6 +103,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
 
     def finding(line, role, evidence, value, image=False):
         resolved = substitute(value, variables)
+        vendor = ""
+        distribution = ""
         if image:
             ref = resolved.split("@", 1)[0]
             leaf = ref.rsplit("/", 1)[-1]
@@ -107,10 +112,15 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             hint = JAVA_TAG_VERSION.search(tag)
             inferred = tag[hint.end():] if hint else tag
             version, status = classify(inferred, java_majors) if not VARIABLE.search(ref) and "{{" not in ref else ("", "unknown_version")
+            if "graalvm" in ref.lower():
+                distribution = "GraalVM"
+            elif re.search(r"(?:^|/)(?:oraclejdk|oracle-jdk|oracle/jdk|oracle/serverjre)(?=[:/]|$)", ref, re.I) or ref.lower().startswith("container-registry.oracle.com/java/"):
+                vendor = "Oracle"
         else:
             version, status = version_value(resolved, java_majors)
         return {"role": role, "evidence": f"{path} ({evidence})", "line": line,
-                "version": version, "declared_version": safe_version(version), "status": status}
+                "version": version, "declared_version": safe_version(version), "status": status,
+                "vendor": vendor, "distribution": distribution}
 
     in_xml_comment = False
     for number, line in enumerate(lines, 1):
@@ -299,6 +309,7 @@ def main():
     parser.add_argument("--url")
     parser.add_argument("--provider", choices=("cloud", "datacenter"))
     parser.add_argument("--workspace")
+    parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
                         help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")
     parser.add_argument("--output", default="reports/bitbucket")
@@ -310,6 +321,8 @@ def main():
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--max-file-bytes", type=int, default=2 * 1024 * 1024)
     args = parser.parse_args()
+    if args.profile == "java4shell":
+        args.java_majors = JAVA4SHELL_MAJORS
     if (not math.isfinite(args.timeout) or args.timeout <= 0 or args.max_file_bytes <= 0
             or not math.isfinite(args.delay) or args.delay < 0):
         parser.error("Use a positive timeout and file size, and a non-negative delay")
@@ -341,7 +354,8 @@ def main():
     return write_reports(args.output, {"source": "bitbucket", "provider": args.provider,
                                        "workspace": args.workspace if args.provider == "cloud" else None, "url": args.url,
                                        "projects": args.project, "additional_branches": args.branch,
-                                       "request_delay_seconds": args.delay, "java_majors": args.java_majors},
+                                       "request_delay_seconds": args.delay, "java_majors": args.java_majors,
+                                       "profile": args.profile},
                          *inventory_function(api, args))
 
 

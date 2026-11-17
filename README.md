@@ -1,6 +1,8 @@
 # Java4Shell · инвентаризация Java
 
-В поле **Мажорные версии Java** укажи ветки через запятую, например `17,21,25,27`. По умолчанию выбрана ветка 17 с порогом **17.0.6 включительно**. Обозначение `17` без номера обновления получает `unknown_version`. Для других выбранных веток достаточно определить мажорную версию. Статус `candidate` означает совпадение с правилом инвентаризации. Применимость CVE к конкретной сборке проверяют по бюллетеню производителя.
+В GUI по умолчанию выбран профиль **Java4Shell · CVE-2026-114938**. Он ищет Java 17 от 17.0.6, ветки 21, 25 и 27, Oracle Java 8 Performance и Oracle GraalVM Enterprise Edition 21.3.20.0.3. Для распознанных сборок Oracle Java SE профиль учитывает исправленные базовые версии 8u513, 17.0.21.1, 21.0.13.1, 25.0.5.1 и 27.0.1.1. Для других поставщиков кандидат требует сверки сборки с их бюллетенем. Для CLI профиль включается флагом `--profile java4shell`. [Матрица Oracle](https://www.oracle.com/security-alerts/cspunov2026.html#AppendixJAVA) · [Версии исправлений Oracle](https://www.oracle.com/java/technologies/javase/27-0-1-1-relnotes.html) · [Исследование Upwind](https://www.upwind.io/blog/java4shell-what-we-know-now-and-what-comes-next)
+
+Чтобы выбрать свои ветки, открой профиль **Инвентаризация по веткам** и введи список в поле **Мажорные версии Java**. В этом режиме по умолчанию выбрана ветка 17 с порогом **17.0.6 включительно**. Обозначение `17` без номера обновления получает `unknown_version`.
 
 [Схема draw.io](docs/architecture.drawio) · [Интерактивная карта HTML](docs/architecture.html)
 
@@ -72,9 +74,13 @@ python nexus_inventory.py --repository java4shell-fixtures --java-majors 17,21,2
 
 ## Dependency-Track
 
-В веб-интерфейсе Dependency-Track открой **Components → Coordinates**. Искать удобнее по **Name**, например `openjdk-17-jre-headless`, `openjdk-17-jdk`, `temurin` или `corretto`. Поле **Version** оставь пустым и проверь версии в результатах. Для старых версий проектов отключи **Only show latest project versions**. Поиск охватывает компоненты из загруженных SBOM. Для версии JVM нужен SBOM, в котором сам JDK или JRE представлен компонентом. [Форма поиска Dependency-Track 4.14](https://github.com/DependencyTrack/frontend/blob/4.14.x/src/views/portfolio/components/ComponentSearch.vue)
+JDK и JRE находятся вне дерева зависимостей Maven и Gradle. JVM может поставляться в базовом образе, устанавливаться системным пакетом или копироваться вместе с приложением. SBOM, построенный только по зависимостям приложения, описывает библиотеки и не даёт сведений о версии этой JVM. Поиск компонентов в таком SBOM не позволяет оценить охват Java4Shell.
+
+Dependency-Track покажет JVM, если в него загружен SBOM финального образа или установленного продукта и инструмент инвентаризации перечислил сам JDK или JRE как компонент. Детектор проверяет файлы рантайма в финальном образе Nexus и сохраняет версию, путь и digest как доказательства.
 
 ## Проверка
+
+Ошибки опроса отображаются в GUI под счётчиками запросов. Для логов Compose переменная `INVENTORY_LOG_LEVEL` в `.env` принимает `DEBUG` (по умолчанию), `INFO`, `WARNING`, `ERROR` или `CRITICAL`. После смены уровня пересоздай контейнер и смотри `docker compose logs -f inventory`. Код `202` для `POST /api/start/bitbucket` означает, что опрос принят. Его состояние и диагностику показывает `GET /api/status`.
 
 ```powershell
 python -m unittest discover -s tests -v

@@ -57,9 +57,11 @@ def main():
     parser.add_argument("--url", default="http://127.0.0.1:18084")
     parser.add_argument("--timeout", type=int, default=300)
     parser.add_argument("--java-majors", default="17")
+    parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     args = parser.parse_args()
     base = args.url.rstrip("/")
-    java_majors = sorted({int(major) for major in args.java_majors.split(",")})
+    java_majors = ([8, 17, 21, 25, 27] if args.profile == "java4shell"
+                   else sorted({int(major) for major in args.java_majors.split(",")}))
     assert b"Data Center" in request(base, "/") and b"data-route" in request(base, "/architecture")
     options = {
         "bitbucket": {"provider": "cloud", "projects": ",".join(f"J4S{i:02d}" for i in range(1, 11))},
@@ -70,7 +72,7 @@ def main():
         raise RuntimeError("An inventory scan is already running")
     run_ids = {}
     for source, filters in options.items():
-        body = {**filters, "delay": 0.1, "javaMajors": args.java_majors}
+        body = {**filters, "delay": 0.1, "javaMajors": args.java_majors, "profile": args.profile}
         run_ids[source] = json.loads(request(base, f"/api/start/{source}", body))["id"]
     print(f"Started live scans {run_ids}", flush=True)
     deadline = time.monotonic() + args.timeout

@@ -54,22 +54,24 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 <label>Платформа <select name="provider"><option value="datacenter">Data Center</option><option value="cloud">Cloud</option></select></label>
 <label>Проекты <input name="projects" placeholder="Все доступные или APP, INFRA"></label>
 <label>Дополнительные ветки <input name="branches" placeholder="release/*, support/*"></label>
-<label>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required></label>
+<label>Профиль <select name="profile"><option value="java4shell">Java4Shell · CVE-2026-114938</option><option value="inventory">Инвентаризация по веткам</option></select></label>
+<label class="java-majors" hidden>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required disabled></label>
 <label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
 <button>Опросить Bitbucket</button>
 </form>
-<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><div class="reports"></div></div>
+<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><pre class="hint diagnostics" hidden></pre><div class="reports"></div></div>
 </section>
 <section id="nexus">
 <h2>Nexus Docker</h2>
 <form>
 <label>Docker-репозитории <input name="repositories" placeholder="Все hosted или docker-prod, docker-stage"></label>
-<label>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required></label>
+<label>Профиль <select name="profile"><option value="java4shell">Java4Shell · CVE-2026-114938</option><option value="inventory">Инвентаризация по веткам</option></select></label>
+<label class="java-majors" hidden>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required disabled></label>
 <label class="check"><input name="includeProxy" type="checkbox"> Включить закэшированные образы proxy</label>
 <label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
 <button>Опросить Nexus</button>
 </form>
-<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><div class="reports"></div></div>
+<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><pre class="hint diagnostics" hidden></pre><div class="reports"></div></div>
 </section>
 </div>
 <section id="results" hidden>
@@ -86,7 +88,7 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 </main>
 <script>
 const sections = [...document.querySelectorAll('#scan section')];
-const stateNames = {running:'Выполняется', done:'Завершён', partial:'Завершён с ошибками', failed:'Ошибка запуска'};
+const stateNames = {running:'Выполняется', done:'Завершён', partial:'Завершён с ошибками', failed:'Ошибка опроса'};
 const seconds = value => value == null ? '—' : value.toFixed(3) + ' с';
 function element(tag, value) {
   const node = document.createElement(tag);
@@ -127,8 +129,9 @@ function resultItem(item) {
     const line = element('li', '');
     const evidence = finding.evidence + (finding.line ? ':' + finding.line : '');
     const context = [finding.branch, finding.commit, finding.platform, finding.digest].filter(Boolean);
-    line.append(element('p', [finding.version || '—', labels[finding.status],
+    line.append(element('p', [finding.version || '—', finding.product_version, labels[finding.status],
       finding.role, finding.vendor].filter(Boolean).join(' · ')), resultLink(evidence, finding.url));
+    if (finding.policy_reason) line.append(element('p', finding.policy_reason));
     if (context.length) line.append(element('p', context.join(' · ')));
     list.append(line);
   }
@@ -156,6 +159,7 @@ async function showResults() {
     }
     resultStatus.textContent = 'Объектов: ' + data.total + ' · Java: ' + data.javaMajors.join(', ') +
       ' · Опрос: ' + new Date(data.generatedAt).toLocaleString('ru-RU');
+    if (data.profile === 'java4shell') resultStatus.textContent += ' · CVE-2026-114938';
     if (!data.items.length) resultStatus.textContent += ' · Совпадений нет';
     resultList.replaceChildren(...data.items.map(resultItem));
     pageNumber.textContent = data.page + ' / ' + data.pages;
@@ -209,6 +213,10 @@ function render(section, job) {
   const output = section.querySelector('output');
   output.textContent = job.messages.at(-1) || '';
   output.className = job.state === 'failed' ? 'error' : '';
+  const diagnostics = section.querySelector('.diagnostics');
+  diagnostics.hidden = !job.diagnostics.length;
+  diagnostics.style.whiteSpace = 'pre-wrap';
+  diagnostics.textContent = job.diagnostics.join('\n');
   const links = section.querySelector('.reports');
   links.replaceChildren();
   for (const name of job.reports) {
@@ -236,6 +244,11 @@ async function refresh() {
 }
 for (const section of sections) {
   const form = section.querySelector('form');
+  form.elements.profile.addEventListener('change', () => {
+    const custom = form.elements.profile.value === 'inventory';
+    form.querySelector('.java-majors').hidden = !custom;
+    form.elements.javaMajors.disabled = !custom;
+  });
   form.addEventListener('submit', async event => {
     event.preventDefault();
     revision++;

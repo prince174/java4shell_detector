@@ -11,10 +11,23 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_JAVA_MAJORS = (17,)
+JAVA4SHELL_MAJORS = (8, 17, 21, 25, 27)
+JAVA4SHELL = "CVE-2026-114938"
+ORACLE_FIXED = {
+    17: (17, 0, 21, 1),
+    21: (21, 0, 13, 1),
+    25: (25, 0, 5, 1),
+    27: (27, 0, 1, 1),
+}
 VERSION = re.compile(
     r"(?<![\d.])(?P<major>1[7-9]|2[0-9]|[3-9][0-9]|[5-9]|1[0-6])"
-    r"(?:\.(?P<minor>\d+)(?:\.(?P<patch>\d+)(?:\.\d+)?)?)?"
+    r"(?:\.(?P<minor>\d+)(?:\.(?P<patch>\d+)(?:\.\d+)*)?)?"
     r"(?:[+_]\d+(?:-LTS)?|-ea(?:\+\d+)?)?(?![\d.])",
+    re.IGNORECASE,
+)
+LEGACY_VERSION = re.compile(
+    r"(?<![\d.])(?:1\.(?P<major>[5-8])(?:\.\d+)?(?:_(?P<update>\d+))?"
+    r"|(?P<short_major>[5-8])u(?P<short_update>\d+))(?:-?b\d+)?(?:-perf)?(?![\d.])",
     re.IGNORECASE,
 )
 
@@ -27,9 +40,10 @@ def parse_java_majors(value):
 
 
 def classify(value, java_majors=DEFAULT_JAVA_MAJORS):
-    legacy = re.search(r"(?<![\d.])1\.([5-8])(?:\.\d+)?(?:_\d+)?(?![\d.])", value)
+    legacy = LEGACY_VERSION.search(value)
     if legacy:
-        return legacy[0], "candidate" if int(legacy[1]) in java_majors else "outside_scope"
+        major = int(legacy["major"] or legacy["short_major"])
+        return legacy[0], "candidate" if major in java_majors else "outside_scope"
     match = VERSION.search(value)
     if not match:
         return "", "unknown_version"
@@ -43,6 +57,38 @@ def classify(value, java_majors=DEFAULT_JAVA_MAJORS):
         return version, "unknown_version"
     status = "candidate" if (int(minor), int(patch)) >= (0, 6) else "outside_scope"
     return version, status
+
+
+def java4shell_result(row):
+    version = row.get("version", "")
+    vendor = row.get("vendor", "").lower()
+    product_version = row.get("product_version") or (version if version.startswith("21.3.") else "")
+    if re.fullmatch(r"21\.3\.20(?:\.0\.3)?(?:\+\d+)?", product_version):
+        return "candidate", "Check the Oracle GraalVM Enterprise Edition build listed in the advisory"
+    legacy = LEGACY_VERSION.fullmatch(version)
+    if version == "8" or legacy and (legacy["major"] or legacy["short_major"]) == "8":
+        update = (legacy["update"] or legacy["short_update"]) if legacy else None
+        if vendor and "oracle" not in vendor:
+            return "outside_scope", "Java 8 entry in the advisory applies to Oracle Performance"
+        if update and int(update) >= 513:
+            return "outside_scope", "Oracle Java 8 November update or later"
+        if version.lower().endswith("-perf"):
+            return "candidate", "Oracle Java 8 Performance; verify the exact update and build"
+        if update in (None, "511"):
+            return "candidate", "Verify whether this is Oracle Java 8 Performance"
+        return "unknown_version", "Oracle Java 8 Performance edition could not be established"
+    _, status = classify(version, JAVA4SHELL_MAJORS)
+    if vendor in {"oracle", "oracle corporation", "oracle java se", "oracle jdk"} and not row.get("distribution"):
+        number = re.match(r"\d+(?:\.\d+)*", version)
+        if number:
+            parts = tuple(map(int, number[0].split(".")))
+            fixed = ORACLE_FIXED.get(parts[0])
+            if fixed and parts >= fixed:
+                return "outside_scope", "Oracle Java SE fixed baseline or later"
+    if status == "unknown_version" and re.fullmatch(r"17(?:\.\d+)?", version):
+        return "candidate", "Verify whether Java 17 is 17.0.6 or later"
+    reason = "Affected Java branch; verify vendor build and patch level" if status == "candidate" else ""
+    return status, reason
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -110,10 +156,15 @@ def report_progress(enabled, kind, elapsed, ok, operation, **details):
 def write_reports(output, scope, assets, findings, errors):
     output = Path(output)
     output.mkdir(parents=True, exist_ok=True)
+    rule = "Selected Java major versions; Java 17 requires version >= 17.0.6"
+    if scope.get("profile") == "java4shell":
+        rule = JAVA4SHELL + " inventory candidates; verify runtime, vendor and patch level"
+        for row in findings:
+            row["status"], row["policy_reason"] = java4shell_result(row)
     candidates = [row for row in findings if row["status"] == "candidate"]
     report = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "rule": "Selected Java major versions; Java 17 requires version >= 17.0.6",
+        "rule": rule,
         "scope": scope,
         "summary": {"assets": len(assets), "findings": len(findings),
                     "candidates": len(candidates), "errors": len(errors)},
@@ -124,7 +175,7 @@ def write_reports(output, scope, assets, findings, errors):
     )
     fields = ("source", "project", "repository", "branch", "commit", "image", "tag", "reference",
               "index_digest", "digest", "platform", "role", "vendor", "version",
-              "declared_version", "status", "evidence", "line")
+              "declared_version", "product_version", "status", "policy_reason", "evidence", "line")
     with (output / "candidates.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()

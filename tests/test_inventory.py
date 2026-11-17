@@ -4,6 +4,7 @@ import contextlib
 import csv
 import io
 import json
+import os
 from pathlib import Path
 import tarfile
 import tempfile
@@ -16,8 +17,8 @@ from unittest.mock import patch
 
 import bitbucket_inventory as bitbucket
 import nexus_inventory as nexus
-from inventory_common import Api, classify, parse_java_majors, write_reports
-from web_app import make_flags, results_page, stats, update_stats
+from inventory_common import Api, JAVA4SHELL_MAJORS, classify, java4shell_result, parse_java_majors, write_reports
+from web_app import diagnostic, make_flags, results_page, run_job, stats, update_stats
 
 
 VERSIONS = {
@@ -40,6 +41,26 @@ def bb_args(**overrides):
 
 
 class VersionTests(unittest.TestCase):
+    def test_java4shell_oracle_advisory_versions_and_fixed_baselines(self):
+        affected = ("8u511b33-perf", "1.8.0_511-b33-perf", "17.0.21.0.3",
+                    "21.0.13.0.3", "25.0.5.0.3", "27.0.1.0.3", "21.3.20.0.3")
+        for version in affected:
+            with self.subTest(version=version):
+                self.assertEqual(classify(version, JAVA4SHELL_MAJORS)[0], version)
+                self.assertEqual(java4shell_result({"vendor": "Oracle Corporation", "version": version})[0],
+                                 "candidate")
+        self.assertEqual(java4shell_result({"version": "11.0.33", "product_version": "21.3.20.0.3"})[0],
+                         "candidate")
+        for version in ("1.8.0_513-b04", "17.0.21.1+4", "21.0.13.1", "25.0.5.1", "27.0.1.1", "11.0.33", "17.0.5"):
+            self.assertEqual(java4shell_result({"vendor": "Oracle Corporation", "version": version})[0],
+                             "outside_scope", version)
+        self.assertEqual(java4shell_result({"vendor": "Eclipse Adoptium", "version": "17.0.21.1+4"})[0],
+                         "candidate")
+        self.assertEqual(java4shell_result({"vendor": "Oracle Corporation", "distribution": "GraalVM",
+                                           "version": "21.0.13.1"})[0], "candidate")
+        row, = bitbucket.declarations("Dockerfile", "FROM oracle/jdk:17.0.21.0.3", JAVA4SHELL_MAJORS)
+        self.assertEqual((row["vendor"], row["version"]), ("Oracle", "17.0.21.0.3"))
+
     def test_selected_majors_preserve_java_17_threshold(self):
         majors = parse_java_majors("27, 17, 21, 25,21")
         self.assertEqual(majors, (17, 21, 25, 27))
@@ -171,6 +192,20 @@ class BitbucketTests(unittest.TestCase):
 
 
 class NexusTests(unittest.TestCase):
+    def test_java4shell_report_reads_graalvm_product_version_separately(self):
+        with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
+            archive = Path(directory, "rootfs.tar")
+            tar_fixture(archive, {
+                "opt/jdk/release": b'JAVA_VERSION="11.0.33"\nGRAALVM_VERSION="21.3.20.0.3"\n',
+                "opt/jdk/bin/java": b"fixture",
+            })
+            rows = nexus.java_files(archive, JAVA4SHELL_MAJORS)
+            self.assertEqual(rows[0]["status"], "outside_scope")
+            write_reports(directory, {"profile": "java4shell"}, [], rows, [])
+            report = json.loads(Path(directory, "inventory.json").read_text(encoding="utf-8"))
+        self.assertEqual(report["summary"]["candidates"], 1)
+        self.assertEqual(report["findings"][0]["product_version"], "21.3.20.0.3")
+
     def test_release_requires_runtime_and_unknown_is_reported(self):
         with tempfile.TemporaryDirectory() as directory:
             archive = Path(directory, "rootfs.tar")
@@ -251,6 +286,19 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_datacenter_failure_reports_cause_and_logs_redacted_diagnostics(self):
+        job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),
+               "messages": [], "diagnostics": [], "provider": "datacenter", "debug": True}
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("inventory", level="DEBUG") as log:
+            env = {"BITBUCKET_TOKEN": "fixture-secret", "BITBUCKET_ALLOW_HTTP_AUTH": "0"}
+            with patch("web_app.OUTPUT", Path(tmp)), patch.dict(os.environ, env):
+                run_job("bitbucket", job, ["--provider=datacenter", "--url=http://127.0.0.1:1"])
+                diagnostic("bitbucket", job, "failed with fixture-secret")
+        self.assertEqual(job["state"], "failed")
+        self.assertTrue(any("Authenticated REST requests require HTTPS" in line for line in job["diagnostics"]))
+        self.assertIn("exit=2", "\n".join(log.output))
+        self.assertNotIn("fixture-secret", "\n".join(log.output))
+
     def test_results_pages_group_repositories_and_encode_links(self):
         findings = [
             {"repository": f"workspace/repo-{index:02}", "evidence": "ci config/pom.xml (java.version)",

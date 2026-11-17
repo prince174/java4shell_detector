@@ -15,7 +15,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from inventory_common import (
-    Api, DEFAULT_JAVA_MAJORS, classify, load_env, parse_java_majors, report_progress, write_reports,
+    Api, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
+    report_progress, write_reports,
 )
 
 API_ROOT = "/service/rest/v1"
@@ -158,13 +159,19 @@ def java_files(archive_path, java_majors=DEFAULT_JAVA_MAJORS):
                     version = values.get("JAVA_RUNTIME_VERSION") or values.get("JAVA_VERSION")
                     if version:
                         releases[posixpath.dirname(path)] = (
-                            path, values.get("IMPLEMENTOR") or values.get("JAVA_VENDOR") or "", version
+                            path, values.get("IMPLEMENTOR") or values.get("JAVA_VENDOR") or "", version,
+                            values.get("GRAALVM_VERSION", ""),
+                            "GraalVM" if any("graalvm" in values.get(key, "").lower()
+                                             for key in ("IMPLEMENTOR_VERSION", "JAVA_VM_NAME"))
+                            or values.get("GRAALVM_VERSION") else "",
                         )
             if RUNTIME_FILE.search(path) and (member.isfile() or member.islnk()):
                 runtime_paths.add(path)
     results = []
     matched = set()
-    for root, (path, vendor, raw) in sorted(releases.items(), key=lambda item: -len(item[0])):
+    for root, (path, vendor, raw, product_version, distribution) in sorted(
+        releases.items(), key=lambda item: -len(item[0])
+    ):
         prefix = root + "/" if root else ""
         markers = {marker for marker in runtime_paths - matched if marker.startswith(prefix)
                    and (marker[len(prefix):].lower().startswith(("bin/", "lib/", "jre/")))}
@@ -172,6 +179,7 @@ def java_files(archive_path, java_majors=DEFAULT_JAVA_MAJORS):
             matched.update(markers)
             version, status = classify(raw, java_majors)
             results.append({"role": "image_runtime", "vendor": vendor, "version": version,
+                            "product_version": product_version, "distribution": distribution,
                             "declared_version": raw, "status": status, "evidence": "/" + path,
                             "runtime_files": ["/" + marker for marker in sorted(markers)]})
     # Coalesce bin/java and lib/*/libjvm that belong to the same unversioned runtime.
@@ -265,6 +273,7 @@ def inventory(api, registry, args, mappings, workdir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url")
+    parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
                         help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")
     parser.add_argument("--output", default="reports/nexus")
@@ -277,6 +286,8 @@ def main():
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--scan-timeout", type=float, default=900)
     args = parser.parse_args()
+    if args.profile == "java4shell":
+        args.java_majors = JAVA4SHELL_MAJORS
     if (not all(math.isfinite(value) and value > 0 for value in (args.timeout, args.scan_timeout))
             or not math.isfinite(args.delay) or args.delay < 0):
         parser.error("Use positive timeouts and a non-negative delay")
@@ -319,6 +330,7 @@ def main():
                                        "include_proxy": args.include_proxy,
                                        "request_delay_seconds": args.delay,
                                        "java_majors": args.java_majors,
+                                       "profile": args.profile,
                                        "registry_mappings": mappings}, *result)
 
 

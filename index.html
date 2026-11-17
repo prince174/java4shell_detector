@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Инвентаризация Java · Java4Shell</title>
+<style>
+:root{color-scheme:light dark;--bg:#101921;--card:#172630;--line:#314652;--ink:#f0f5f4;--muted:#a9bdc7;--accent:#8ce9c1}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Geist",system-ui,sans-serif}
+main{width:min(1100px,calc(100% - 36px));margin:58px auto}
+h1,h2,h3,p{margin:0}h1{font-size:clamp(28px,5vw,52px);letter-spacing:-.04em}h2{font-size:23px}
+header p,.hint,dt,output{color:var(--muted)}header p{margin:.4rem 0 1.9rem}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:20px}
+section{border:1px solid var(--line);border-radius:14px;background:var(--card);padding:23px;min-width:0}
+form, .status{display:grid;gap:12px;margin-top:15px}form{min-height:245px}
+label{display:grid;gap:4px;font-size:.9rem}
+input:not([type=checkbox]),select{width:100%;padding:9px;border:1px solid var(--line);border-radius:7px;background:var(--bg);color:var(--ink);font:inherit}
+input[type=checkbox]{accent-color:var(--accent)}.check{display:flex;align-items:center;gap:7px}
+button{align-self:end;width:max-content;padding:9px 16px;border:0;border-radius:7px;color:#10251d;background:var(--accent);font:inherit;font-weight:650;cursor:pointer}
+button:disabled{opacity:.55;cursor:wait}
+.status{border-top:1px solid var(--line);padding-top:15px}
+dl{margin:5px 0 0;display:grid;grid-template-columns:1fr auto;gap:5px 16px;font-size:.9rem}
+dd{margin:0;font-variant-numeric:tabular-nums;text-align:right}
+.hint,output{font-size:.82rem;overflow-wrap:anywhere}
+h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap:15px}
+[hidden]{display:none!important}.error{color:#ffb3ac}
+@media(max-width:760px){main{margin:25px auto}.grid{grid-template-columns:1fr}form{min-height:0}}
+</style>
+</head>
+<body>
+<main>
+<header>
+<h1>Инвентаризация Java</h1>
+<p>Java 17 от 17.0.6 включительно · <a href="/architecture">Как работает опрос</a></p>
+</header>
+<div class="grid">
+<section id="bitbucket">
+<h2>Bitbucket</h2>
+<form>
+<label>Платформа <select name="provider"><option value="datacenter">Data Center</option><option value="cloud">Cloud</option></select></label>
+<label>Проекты <input name="projects" placeholder="Все доступные или APP, INFRA"></label>
+<label>Дополнительные ветки <input name="branches" placeholder="release/*, support/*"></label>
+<label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
+<button>Опросить Bitbucket</button>
+</form>
+<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><div class="reports"></div></div>
+</section>
+<section id="nexus">
+<h2>Nexus Docker</h2>
+<form>
+<label>Docker-репозитории <input name="repositories" placeholder="Все hosted или docker-prod, docker-stage"></label>
+<label class="check"><input name="includeProxy" type="checkbox"> Включить закэшированные образы proxy</label>
+<label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
+<button>Опросить Nexus</button>
+</form>
+<div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><div class="reports"></div></div>
+</section>
+</div>
+</main>
+<script>
+const sections = [...document.querySelectorAll('section')];
+const stateNames = {running:'Выполняется', done:'Завершён', partial:'Завершён с ошибками', failed:'Ошибка запуска'};
+const seconds = value => value == null ? '—' : value.toFixed(3) + ' с';
+function element(tag, value) {
+  const node = document.createElement(tag);
+  node.textContent = value;
+  return node;
+}
+function showStats(target, title, data) {
+  target.append(element('h3', title));
+  const list = document.createElement('dl');
+  const values = [
+    ['Всего / ошибок', data.count + ' / ' + data.errors],
+    ['Последний ответ', seconds(data.last)],
+    ['Среднее время', seconds(data.count ? data.total / data.count : null)],
+    ['Максимальное время', seconds(data.count ? data.max : null)]
+  ];
+  if (data.http_status) values.push(['Последний HTTP-статус', data.http_status]);
+  for (const [label, value] of values) list.append(element('dt', label), element('dd', value));
+  target.append(list);
+  if (data.operation) {
+    const detail = element('p', data.operation);
+    detail.className = 'hint';
+    target.append(detail);
+  }
+}
+function render(section, job) {
+  section.querySelector('button').disabled = job.state === 'running';
+  section.querySelector('.state').textContent = stateNames[job.state] + ' · ' + Math.floor(job.elapsed) + ' с';
+  const metrics = section.querySelector('.metrics');
+  metrics.replaceChildren();
+  showStats(metrics, 'REST GET', job.http);
+  if (section.id === 'nexus') showStats(metrics, 'Операции Docker Registry', job.registry);
+  const report = job.summary;
+  if (report) metrics.append(element('p', 'Объектов: ' + report.assets + ' · Кандидатов: ' + report.candidates + ' · Ошибок охвата: ' + report.errors));
+  const output = section.querySelector('output');
+  output.textContent = job.messages.at(-1) || '';
+  output.className = job.state === 'failed' ? 'error' : '';
+  const links = section.querySelector('.reports');
+  links.replaceChildren();
+  for (const name of job.reports) {
+    const link = element('a', name === 'candidates.csv' ? 'Кандидаты CSV' : 'Полный отчёт JSON');
+    link.href = '/reports/' + section.id + '/' + job.id + '/' + name;
+    links.append(link);
+  }
+}
+let revision = 0;
+async function refresh() {
+  const requestRevision = revision;
+  const response = await fetch('/api/status', {cache:'no-store'});
+  if (!response.ok) throw new Error('Статистика сервиса недоступна');
+  const jobs = await response.json();
+  if (requestRevision !== revision) return;
+  for (const section of sections) if (jobs[section.id]) render(section, jobs[section.id]);
+}
+for (const section of sections) {
+  const form = section.querySelector('form');
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    revision++;
+    const button = section.querySelector('button');
+    const output = section.querySelector('output');
+    const settings = Object.fromEntries(new FormData(form));
+    settings.includeProxy = !!form.elements.includeProxy?.checked;
+    button.disabled = true;
+    output.textContent = '';
+    try {
+      const response = await fetch('/api/start/' + section.id, {
+        method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(settings)
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error);
+      await refresh();
+    } catch (error) {
+      output.className = 'error';
+      output.textContent = error.message;
+      button.disabled = false;
+    }
+  });
+}
+async function poll() {
+  try { await refresh(); }
+  catch (error) { for (const section of sections) section.querySelector('output').textContent = error.message; }
+  finally { setTimeout(poll, 1000); }
+}
+async function init() {
+  try {
+    const response = await fetch('/api/config');
+    if (response.ok) {
+      const config = await response.json();
+      if (['cloud','datacenter'].includes(config.bitbucketProvider)) {
+        document.querySelector('#bitbucket select').value = config.bitbucketProvider;
+      }
+    }
+  } finally {
+    poll();
+  }
+}
+init().catch(() => {});
+</script>
+</body>
+</html>

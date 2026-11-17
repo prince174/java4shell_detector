@@ -1,0 +1,26 @@
+<mxfile host="app.diagrams.net">
+  <diagram id="inventory" name="Java4Shell inventory">
+    <mxGraphModel grid="1" gridSize="10" page="1" pageWidth="1169" pageHeight="827">
+      <root>
+        <mxCell id="0"/><mxCell id="1" parent="0"/>
+        <mxCell id="title" value="Инвентаризация Java · Java4Shell" style="text;html=1;fontSize=27;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="45" y="25" width="850" height="55" as="geometry"/></mxCell>
+        <mxCell id="browser" value="Браузер&lt;br&gt;Фильтры · пауза GET&lt;br&gt;Статистика ответов" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="45" y="210" width="165" height="85" as="geometry"/></mxCell>
+        <mxCell id="app" value="Python API&lt;br&gt;Docker Compose&lt;br&gt;Запуск и прогресс" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="260" y="210" width="165" height="85" as="geometry"/></mxCell>
+        <mxCell id="env" value=".env&lt;br&gt;Адреса и учётные данные" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="260" y="370" width="165" height="68" as="geometry"/></mxCell>
+        <mxCell id="bb" value="Bitbucket Cloud / DC&lt;br&gt;REST, страницы, ветки" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="490" y="135" width="180" height="80" as="geometry"/></mxCell>
+        <mxCell id="nx" value="Nexus REST и Registry&lt;br&gt;Репозитории, теги, digest" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="490" y="290" width="180" height="80" as="geometry"/></mxCell>
+        <mxCell id="src" value="Коммит и конфигурация&lt;br&gt;Файл, строка, роль Java" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="720" y="135" width="180" height="80" as="geometry"/></mxCell>
+        <mxCell id="jvm" value="Файловая система образа&lt;br&gt;release и признаки JVM" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#e1d5e7;strokeColor=#9673a6;" vertex="1" parent="1"><mxGeometry x="720" y="290" width="180" height="80" as="geometry"/></mxCell>
+        <mxCell id="report" value="Отчёты на хосте&lt;br&gt;CSV кандидатов · JSON&lt;br&gt;Java 17 ≥ 17.0.6" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="955" y="210" width="180" height="85" as="geometry"/></mxCell>
+        <mxCell id="e01" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="browser" target="app"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e02" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;dashed=1;" edge="1" parent="1" source="env" target="app"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e03" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="app" target="bb"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e04" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="app" target="nx"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e05" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="bb" target="src"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e06" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="nx" target="jvm"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e07" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="src" target="report"><mxGeometry relative="1" as="geometry"/></mxCell>
+        <mxCell id="e08" style="edgeStyle=orthogonalEdgeStyle;rounded=1;endArrow=block;" edge="1" parent="1" source="jvm" target="report"><mxGeometry relative="1" as="geometry"/></mxCell>
+      </root>
+    </mxGraphModel>
+  </diagram>
+</mxfile>

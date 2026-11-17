@@ -1,0 +1,79 @@
+"""Run the live ten-version acceptance matrix against the Compose GUI API."""
+import argparse
+import csv
+import io
+import json
+import time
+from urllib.request import Request, urlopen
+
+ALL_VERSIONS = {
+    "17.0.5", "17.0.6", "17.0.7", "17.0.8", "17.0.9",
+    "17.0.10", "17.0.11", "17.0.12", "17.0.13", "21.0.5",
+}
+CANDIDATE_VERSIONS = ALL_VERSIONS - {"17.0.5", "21.0.5"}
+EXPECTED = {"assets": 10, "findings": 10, "candidates": 8, "errors": 0}
+
+
+def request(base, path, settings=None):
+    data = None if settings is None else json.dumps(settings).encode()
+    headers = {} if data is None else {"Content-Type": "application/json"}
+    with urlopen(Request(base + path, data=data, headers=headers), timeout=15) as response:
+        return response.read()
+
+
+def verify(base, source, job):
+    run_id = job["id"]
+    if job["state"] != "done":
+        raise AssertionError(f"{source} {run_id}: {job['state']} {job['messages']}")
+    root = f"/reports/{source}/{run_id}/"
+    report = json.loads(request(base, root + "inventory.json"))
+    candidates = list(csv.DictReader(io.StringIO(request(base, root + "candidates.csv").decode("utf-8-sig"))))
+    assert report["summary"] == EXPECTED, (source, report["summary"])
+    assert {row["version"].partition("+")[0] for row in report["findings"]} == ALL_VERSIONS
+    assert len(candidates) == len(CANDIDATE_VERSIONS)
+    assert {row["version"].partition("+")[0] for row in candidates} == CANDIDATE_VERSIONS
+    assert job["http"]["count"] > 0 and not job["http"]["errors"]
+    if source == "nexus":
+        assert len({row["digest"] for row in report["assets"]}) == len(ALL_VERSIONS)
+        assert {row["platform"] for row in report["assets"]} == {"linux/amd64"}
+        assert all(row["vendor"] == "Eclipse Adoptium" and row["evidence"].endswith("/release")
+                   for row in report["findings"])
+        assert job["registry"]["count"] and not job["registry"]["errors"]
+    else:
+        assert all(row["status"] == "scanned" and row["commit"] for row in report["assets"])
+    print(f"{source} {run_id}: {EXPECTED}, {job['elapsed']:.2f} s", flush=True)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--url", default="http://127.0.0.1:18084")
+    parser.add_argument("--timeout", type=int, default=300)
+    args = parser.parse_args()
+    base = args.url.rstrip("/")
+    assert b"Data Center" in request(base, "/") and b"data-route" in request(base, "/architecture")
+    options = {
+        "bitbucket": {"provider": "cloud", "projects": ",".join(f"J4S{i:02d}" for i in range(1, 11))},
+        "nexus": {"repositories": "java4shell-fixtures"},
+    }
+    current = json.loads(request(base, "/api/status"))
+    if any(row["state"] == "running" for row in current.values()):
+        raise RuntimeError("An inventory scan is already running")
+    run_ids = {}
+    for source, filters in options.items():
+        run_ids[source] = json.loads(request(base, f"/api/start/{source}", {**filters, "delay": 0.1}))["id"]
+    print(f"Started live scans {run_ids}", flush=True)
+    deadline = time.monotonic() + args.timeout
+    while time.monotonic() < deadline:
+        jobs = json.loads(request(base, "/api/status"))
+        if any(jobs[source]["id"] != run_id for source, run_id in run_ids.items()):
+            raise RuntimeError("Another scan replaced a job before validation")
+        if all(job["state"] != "running" for job in jobs.values()):
+            for source in run_ids:
+                verify(base, source, jobs[source])
+            return
+        time.sleep(3)
+    raise TimeoutError("Live inventory scans did not finish in time")
+
+
+if __name__ == "__main__":
+    main()

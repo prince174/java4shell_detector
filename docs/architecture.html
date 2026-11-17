@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Как работает Java4Shell</title>
+<style>
+:root{color-scheme:dark;--bg:#101921;--panel:#172630;--line:#415b69;--fg:#eef6f3;--muted:#b2c8cf;--accent:#8ce9c1}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);font:16px/1.55 system-ui,sans-serif;color:var(--fg)}
+main{width:min(1080px,calc(100% - 36px));margin:40px auto 60px}h1{font-size:clamp(28px,6vw,48px);margin:.2rem 0}a{color:var(--accent)}p{color:var(--muted)}
+nav{display:flex;flex-wrap:wrap;gap:8px;margin:20px 0}
+button{border:1px solid var(--line);background:var(--panel);color:var(--fg);font:inherit;border-radius:9px;padding:10px;cursor:pointer}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:4px}
+button[aria-pressed=true]{background:#173d37;border-color:var(--accent);color:var(--accent)}
+.map{display:grid;grid-template-columns:1fr 34px 1.15fr 34px 1.15fr 34px 1fr;gap:6px;align-items:center}
+.split{display:grid;gap:14px}.arrow{text-align:center;color:var(--accent);font-size:23px}
+.map button{min-height:65px}.map button.dim,.map .arrow.dim{opacity:.3}
+article{margin-top:24px;padding:20px 25px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+h2{margin:0}ul{margin-bottom:0}li+li{margin-top:7px}
+@media(max-width:700px){.map{grid-template-columns:1fr}.arrow{transform:rotate(90deg)}.split{grid-template-columns:1fr 1fr}}
+</style>
+</head>
+<body><main>
+<h1>Как работает Java4Shell</h1>
+<p>Выбери маршрут или блок схемы. Отчёт отбирает Java 17 от 17.0.6 включительно.</p>
+<nav aria-label="Маршрут">
+<button data-route="all" aria-pressed="true">Оба источника</button>
+<button data-route="bitbucket" aria-pressed="false">Bitbucket</button>
+<button data-route="nexus" aria-pressed="false">Nexus</button>
+</nav>
+<div class="map" aria-label="Поток данных">
+<button data-node="web" aria-pressed="true">Веб-интерфейс</button>
+<span class="arrow" aria-hidden="true">→</span>
+<div class="split">
+<button data-node="bitbucket" data-path="bitbucket" aria-pressed="false">Bitbucket Cloud / DC</button>
+<button data-node="nexus" data-path="nexus" aria-pressed="false">Nexus REST / Registry</button>
+</div>
+<span class="arrow" aria-hidden="true">→</span>
+<div class="split">
+<button data-node="source" data-path="bitbucket" aria-pressed="false">Коммит и файлы</button>
+<button data-node="runtime" data-path="nexus" aria-pressed="false">Digest и JVM</button>
+</div>
+<span class="arrow" aria-hidden="true">→</span>
+<button data-node="report" aria-pressed="false">Отчёт CSV и JSON</button>
+</div>
+<article aria-live="polite"><h2 id="title"></h2><ul id="details"></ul></article>
+</main>
+<script>
+const notes = {
+  web: ['Веб-интерфейс', ['В Docker Compose браузер обращается к локальному Python API.', 'Форма задаёт источник, фильтры и паузу между REST GET. Адреса и токены задаются в .env.', 'Интерфейс показывает время опроса, количество запросов и время ответов.']],
+  bitbucket: ['Bitbucket Cloud / Data Center', ['Переключатель выбирает API и учётные данные.', 'Сканер перечисляет доступные репозитории и определяет коммиты основной ветки и веток по маскам.', 'Пауза 0.1 с по умолчанию применяется между REST GET.']],
+  nexus: ['Nexus REST / Docker Registry', ['Nexus REST перечисляет репозитории и manifest assets с пагинацией.', 'Регистровый клиент разрешает теги в digest и обходит платформенные манифесты. Уникальный digest экспортируется один раз за прогон.', 'GUI показывает операции crane отдельно от GET к Nexus REST.']],
+  source: ['Коммит и файлы', ['Сканер читает файлы на зафиксированном Git-коммите.', 'Dockerfile, CI, Maven и Gradle дают разные типы свидетельств. Цель компиляции не определяет JVM запущенного контейнера.', 'Отчёт сохраняет файл, строку и тип декларации.']],
+  runtime: ['Digest и JVM', ['crane экспортирует финальную файловую систему образа. Контейнер не запускается.', 'Версия определяется по файлу release, связанному с bin/java или библиотекой JVM.', 'Отчёт указывает digest, платформу, путь, версию и поставщика при наличии.']],
+  report: ['Отчёт CSV и JSON', ['CSV содержит кандидатов Java 17 от 17.0.6.', 'JSON сохраняет все находки, объекты проверки, неизвестные версии и ошибки охвата.', 'Отчёты остаются в reports на хосте.']]
+};
+function selectNode(key) {
+  for(const button of document.querySelectorAll('[data-node]')) button.setAttribute('aria-pressed', String(button.dataset.node === key));
+  document.getElementById('title').textContent = notes[key][0];
+  document.getElementById('details').replaceChildren(...notes[key][1].map(text => {
+    const item = document.createElement('li');
+    item.textContent = text;
+    return item;
+  }));
+}
+for(const button of document.querySelectorAll('[data-node]')) button.addEventListener('click', () => selectNode(button.dataset.node));
+for(const button of document.querySelectorAll('[data-route]')) button.addEventListener('click', () => {
+  const route = button.dataset.route;
+  for(const tab of document.querySelectorAll('[data-route]')) tab.setAttribute('aria-pressed', String(tab === button));
+  for(const node of document.querySelectorAll('[data-path]')) node.classList.toggle('dim', route !== 'all' && node.dataset.path !== route);
+  selectNode(route === 'all' ? 'web' : route);
+});
+selectNode('web');
+</script>
+</body></html>

@@ -1,0 +1,321 @@
+"""Inventory Java runtimes in Nexus Docker repositories using crane."""
+import argparse
+import base64
+import json
+import math
+import os
+import posixpath
+import re
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import time
+from pathlib import Path
+from urllib.parse import urlsplit
+
+from inventory_common import Api, classify, load_env, report_progress, write_reports
+
+API_ROOT = "/service/rest/v1"
+ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError, tarfile.TarError)
+DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+MANIFEST_PATH = re.compile(r"(?:^|/)v2/(.+)/manifests/([^/]+)$")
+IMAGE_NAME = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*")
+TAG = re.compile(r"[\w][\w.-]{0,127}", re.ASCII)
+RUNTIME_FILE = re.compile(r"(?:^|/)(?:bin/java(?:\.exe)?|libjvm\.so|libjvm\.dylib|jvm\.dll)$", re.I)
+
+
+def docker_assets(api, repository):
+    seen = set()
+    token = None
+    while token not in seen:
+        seen.add(token)
+        params = {"repository": repository}
+        if token:
+            params["continuationToken"] = token
+        page = api.json(API_ROOT + "/assets", params)
+        yield from page["items"]
+        token = page.get("continuationToken")
+        if not token:
+            return
+    raise ValueError("Repeated Nexus continuation token")
+
+
+def endpoint(value):
+    if "://" not in value:
+        value = "https://" + value
+    parsed = urlsplit(value)
+    prefix = parsed.path.strip("/")
+    if (parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username
+            or parsed.password or parsed.query or parsed.fragment
+            or (prefix and not IMAGE_NAME.fullmatch(prefix))):
+        raise ValueError("Expected a registry host[:port][/prefix] with optional http(s) scheme")
+    # A single-label registry requires an explicit port to avoid Docker Hub shorthand.
+    if "." not in parsed.netloc and ":" not in parsed.netloc and parsed.netloc != "localhost":
+        raise ValueError("Use a fully qualified registry host or specify its port")
+    return parsed.netloc, prefix, parsed.scheme == "http"
+
+
+class Registry:
+    def __init__(self, args, workdir, mappings):
+        self.args = args
+        self.env = dict(os.environ)
+        self.username = os.getenv("NEXUS_DOCKER_USERNAME")
+        self.password = os.getenv("NEXUS_DOCKER_PASSWORD")
+        if bool(self.username) != bool(self.password):
+            raise ValueError("Set both NEXUS_DOCKER_USERNAME and NEXUS_DOCKER_PASSWORD")
+        if self.username:
+            endpoints = {endpoint(value) for value in mappings.values()}
+            if (any(insecure for _, _, insecure in endpoints)
+                    and os.getenv("NEXUS_ALLOW_HTTP_AUTH") != "1"):
+                raise ValueError("Docker credentials from .env require HTTPS registry endpoints")
+            auth = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
+            Path(workdir, "config.json").write_text(json.dumps({
+                "auths": {host: {"auth": auth} for host, _, _ in endpoints}
+            }), encoding="utf-8")
+            self.env["DOCKER_CONFIG"] = workdir
+        for key in ("BITBUCKET_TOKEN", "BITBUCKET_CLOUD_TOKEN", "NEXUS_TOKEN",
+                    "NEXUS_REST_PASSWORD", "NEXUS_DOCKER_PASSWORD"):
+            self.env.pop(key, None)
+
+    def run(self, command, ref, insecure, *options):
+        command_line = [self.args.crane, command, ref, *options]
+        if insecure:
+            command_line.append("--insecure")
+        started_at = time.monotonic()
+        ok = False
+        try:
+            result = subprocess.run(command_line, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                    env=self.env, timeout=self.args.scan_timeout, check=False)
+            ok = result.returncode == 0
+        except subprocess.TimeoutExpired:
+            raise RuntimeError(f"crane {command} timed out for {ref}") from None
+        finally:
+            report_progress(self.args.progress, "registry", time.monotonic() - started_at,
+                            ok, f"{command} {ref}")
+        if result.returncode:
+            output = result.stderr.decode("utf-8", errors="replace").splitlines()
+            detail = output[-1] if output else ""
+            for key in ("NEXUS_DOCKER_PASSWORD", "NEXUS_REST_PASSWORD", "NEXUS_TOKEN", "BITBUCKET_TOKEN"):
+                secret = os.getenv(key)
+                if secret:
+                    detail = detail.replace(secret, "[redacted]")
+            detail = re.sub(r"(https?://)[^/@\s]+@", r"\1[redacted]@", detail)
+            raise RuntimeError(f"crane {command} failed for {ref} ({result.returncode}): {detail[:500]}")
+        return result.stdout
+
+    def manifests(self, name, digest, insecure, platform=None, chain=()):
+        if not DIGEST.fullmatch(digest) or digest in chain or len(chain) >= 8:
+            raise ValueError(f"Invalid or recursive manifest digest: {digest}")
+        ref = f"{name}@{digest}"
+        manifest = json.loads(self.run("manifest", ref, insecure))
+        if "manifests" in manifest:
+            for descriptor in manifest["manifests"]:
+                labels = descriptor.get("annotations") or {}
+                if (labels.get("vnd.docker.reference.type") == "attestation-manifest"
+                        or descriptor.get("artifactType")):
+                    continue
+                child_platform = descriptor.get("platform") or platform
+                yield from self.manifests(name, descriptor["digest"], insecure,
+                                          child_platform, (*chain, digest))
+        elif "layers" in manifest and "config" in manifest:
+            if manifest.get("artifactType") or not manifest["config"].get("mediaType", "").endswith(
+                ("container.image.v1+json", "image.config.v1+json")
+            ):
+                return
+            if not platform or platform.get("os") in (None, "unknown") or platform.get("architecture") in (None, "unknown"):
+                platform = json.loads(self.run("config", ref, insecure))
+            os_name, arch = platform.get("os"), platform.get("architecture")
+            if not os_name or not arch:
+                raise ValueError(f"Missing image platform for {ref}")
+            parts = [os_name, arch]
+            if platform.get("variant"):
+                parts.append(platform["variant"])
+            label = "/".join(parts)
+            if platform.get("os.version"):
+                label += ":" + platform["os.version"]
+            yield digest, label
+        else:
+            raise ValueError(f"Unsupported image manifest for {ref}")
+
+
+def path_name(name):
+    return posixpath.normpath(name.replace("\\", "/")).lstrip("/")
+
+
+def java_files(archive_path):
+    releases = {}
+    runtime_paths = set()
+    with tarfile.open(archive_path, mode="r|*") as archive:
+        for member in archive:
+            path = path_name(member.name)
+            if member.isfile() and posixpath.basename(path).lower() == "release" and member.size <= 65536:
+                with archive.extractfile(member) as stream:
+                    values = dict(re.findall(r'^([A-Z][A-Z_]+)="([^"\r\n]*)"\s*$',
+                                             stream.read().decode("utf-8", errors="replace"), re.M))
+                    version = values.get("JAVA_RUNTIME_VERSION") or values.get("JAVA_VERSION")
+                    if version:
+                        releases[posixpath.dirname(path)] = (
+                            path, values.get("IMPLEMENTOR") or values.get("JAVA_VENDOR") or "", version
+                        )
+            if RUNTIME_FILE.search(path) and (member.isfile() or member.islnk()):
+                runtime_paths.add(path)
+    results = []
+    matched = set()
+    for root, (path, vendor, raw) in sorted(releases.items(), key=lambda item: -len(item[0])):
+        prefix = root + "/" if root else ""
+        markers = {marker for marker in runtime_paths - matched if marker.startswith(prefix)
+                   and (marker[len(prefix):].lower().startswith(("bin/", "lib/", "jre/")))}
+        if markers:
+            matched.update(markers)
+            version, status = classify(raw)
+            results.append({"role": "image_runtime", "vendor": vendor, "version": version,
+                            "declared_version": raw, "status": status, "evidence": "/" + path,
+                            "runtime_files": ["/" + marker for marker in sorted(markers)]})
+    # Coalesce bin/java and lib/*/libjvm that belong to the same unversioned runtime.
+    remaining = {}
+    for path in sorted(runtime_paths - matched):
+        root = re.split(r"/(?:bin|lib)/", "/" + path, maxsplit=1)[0]
+        remaining.setdefault(root, []).append("/" + path)
+    results.extend({"role": "image_runtime", "vendor": "", "version": "",
+                    "status": "unknown_version", "evidence": paths[0], "runtime_files": paths}
+                   for paths in remaining.values())
+    return results
+
+
+def inventory(api, registry, args, mappings, workdir):
+    assets, findings, errors = [], [], []
+    scans = {}
+    archive_path = Path(workdir, "rootfs.tar")
+    try:
+        catalog = api.json(API_ROOT + "/repositories")
+        repositories = {repo["name"]: repo for repo in catalog if repo["format"] == "docker"}
+        requested = set(args.repository) if args.repository else {
+            name for name, repo in repositories.items() if repo["type"] in
+            ({"hosted", "proxy"} if args.include_proxy else {"hosted"})
+        }
+        for repository in sorted(requested):
+            try:
+                if repository not in repositories:
+                    raise ValueError("Docker repository missing or inaccessible")
+                if repositories[repository]["type"] not in {"hosted", "proxy"}:
+                    raise ValueError("Specify group member repositories individually")
+                if repository not in mappings:
+                    raise ValueError("Missing registry endpoint mapping")
+                host, prefix, insecure = endpoint(mappings[repository])
+                seen_refs = set()
+                for item in docker_assets(api, repository):
+                    match = MANIFEST_PATH.search(item["path"])
+                    if match:
+                        seen_refs.add(match.groups())
+                covered = set()
+                # Nexus lists both tags and digest aliases as assets. Scan tag references first.
+                for image, reference in sorted(seen_refs, key=lambda item: (":" in item[1], *item)):
+                    digest_reference = bool(DIGEST.fullmatch(reference))
+                    if digest_reference and (image, reference) in covered:
+                        continue
+                    location = {"source": "nexus", "repository": repository, "image": image,
+                                "tag": "" if digest_reference else reference, "reference": reference}
+                    index_digest = None
+                    errors_before = len(errors)
+                    count = 0
+                    try:
+                        if not IMAGE_NAME.fullmatch(image) or not (TAG.fullmatch(reference) or digest_reference):
+                            raise ValueError("Malformed Docker image reference")
+                        name = "/".join(part for part in (host, prefix, image) if part)
+                        if digest_reference:
+                            index_digest = reference
+                        else:
+                            index_digest = registry.run("digest", f"{name}:{reference}", insecure).decode().strip()
+                        for digest, platform in registry.manifests(name, index_digest, insecure):
+                            count += 1
+                            asset = {**location, "index_digest": index_digest, "digest": digest, "platform": platform}
+                            try:
+                                if digest not in scans:
+                                    registry.run("export", f"{name}@{digest}", insecure, str(archive_path))
+                                    scans[digest] = java_files(archive_path)
+                                rows = scans[digest]
+                                covered.add((image, digest))
+                                assets.append({**asset, "status": "scanned", "findings": len(rows)})
+                                findings.extend({**asset, **row} for row in rows)
+                            except ERRORS as exc:
+                                assets.append({**asset, "status": "error"})
+                                errors.append({**asset, "error": str(exc)})
+                            finally:
+                                archive_path.unlink(missing_ok=True)
+                        if not count:
+                            assets.append({**location, "index_digest": index_digest, "status": "no_image_manifests"})
+                        if len(errors) == errors_before and count:
+                            covered.add((image, index_digest))
+                    except ERRORS as exc:
+                        if not count:
+                            assets.append({**location, "index_digest": index_digest, "status": "error"})
+                        errors.append({**location, "index_digest": index_digest, "error": str(exc)})
+                if not seen_refs:
+                    assets.append({"source": "nexus", "repository": repository, "status": "no_manifest_assets"})
+            except ERRORS as exc:
+                errors.append({"repository": repository, "error": str(exc)})
+    except ERRORS as exc:
+        errors.append({"stage": "list_repositories", "error": str(exc)})
+    return assets, findings, errors
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--url")
+    parser.add_argument("--output", default="reports/nexus")
+    parser.add_argument("--registry", action="append", default=[], metavar="REPO=ENDPOINT")
+    parser.add_argument("--repository", action="append", default=[])
+    parser.add_argument("--include-proxy", action="store_true")
+    parser.add_argument("--crane", default="crane")
+    parser.add_argument("--timeout", type=float, default=30)
+    parser.add_argument("--delay", type=float, default=0.1, help="Seconds between REST GET requests")
+    parser.add_argument("--progress", action="store_true")
+    parser.add_argument("--scan-timeout", type=float, default=900)
+    args = parser.parse_args()
+    if (not all(math.isfinite(value) and value > 0 for value in (args.timeout, args.scan_timeout))
+            or not math.isfinite(args.delay) or args.delay < 0):
+        parser.error("Use positive timeouts and a non-negative delay")
+    try:
+        load_env()
+        args.url = args.url or os.getenv("NEXUS_URL", "")
+        mappings = json.loads(os.getenv("NEXUS_REGISTRIES", "{}"))
+        if not isinstance(mappings, dict):
+            raise ValueError("NEXUS_REGISTRIES must be a JSON object")
+        for mapping in args.registry:
+            name, sep, value = mapping.partition("=")
+            if not name or not sep or not value:
+                raise ValueError("Registry mapping must be REPO=ENDPOINT")
+            mappings[name] = value
+        for value in mappings.values():
+            if not isinstance(value, str):
+                raise ValueError("Registry endpoints must be strings")
+            endpoint(value)
+        if not shutil.which(args.crane):
+            raise ValueError("crane executable not found; add it to PATH or set --crane")
+        token = os.getenv("NEXUS_TOKEN")
+        username, password = os.getenv("NEXUS_REST_USERNAME"), os.getenv("NEXUS_REST_PASSWORD")
+        if token:
+            auth = f"Bearer {token}"
+        elif username and password:
+            auth = "Basic " + base64.b64encode(f"{username}:{password}".encode()).decode()
+        elif username or password:
+            raise ValueError("Set both NEXUS_REST_USERNAME and NEXUS_REST_PASSWORD")
+        else:
+            auth = None
+        api = Api(args.url, auth, args.timeout, args.delay, args.progress,
+                  allow_http_auth=os.getenv("NEXUS_ALLOW_HTTP_AUTH") == "1")
+        with tempfile.TemporaryDirectory(prefix="java4shell-") as workdir:
+            registry = Registry(args, workdir, mappings)
+            result = inventory(api, registry, args, mappings, workdir)
+    except ERRORS as exc:
+        parser.error(str(exc))
+    return write_reports(args.output, {"source": "nexus", "url": args.url,
+                                       "repositories": args.repository,
+                                       "include_proxy": args.include_proxy,
+                                       "request_delay_seconds": args.delay,
+                                       "registry_mappings": mappings}, *result)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

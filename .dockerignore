@@ -1,0 +1,9 @@
+**
+!Dockerfile
+!inventory_common.py
+!bitbucket_inventory.py
+!nexus_inventory.py
+!web_app.py
+!index.html
+!docs/
+!docs/architecture.html

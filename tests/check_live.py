@@ -31,7 +31,7 @@ def verify_build_settings():
                 ["docker", "compose", "--env-file", str(settings), "config", "--format", "json"],
                 cwd=root, env=env,
             )
-            assert json.loads(config)["services"]["inventory"]["build"]["args"] == values
+            assert json.loads(config)["services"]["java4shell_detector"]["build"]["args"] == values
 
 
 def request(base, path, settings=None):
@@ -91,7 +91,9 @@ def main():
     base = args.url.rstrip("/")
     java_majors = ([8, 17, 21, 25, 27] if args.profile == "java4shell"
                    else sorted({int(major) for major in args.java_majors.split(",")}))
-    assert b"Data Center" in request(base, "/") and b"data-route" in request(base, "/architecture")
+    home = request(base, "/")
+    assert b"<h1>java4shell_detector</h1>" in home and b"Data Center" in home
+    assert b"data-route" in request(base, "/architecture")
     options = {
         "bitbucket": {"provider": "cloud", "projects": ",".join(f"J4S{i:02d}" for i in range(1, 11))},
         "nexus": {"repositories": "java4shell-fixtures"},

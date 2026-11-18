@@ -1,5 +1,5 @@
 services:
-  inventory:
+  java4shell_detector:
     build:
       context: .
       args:

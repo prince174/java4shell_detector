@@ -1,8 +1,8 @@
-# Java4Shell · инвентаризация Java
+# java4shell_detector
 
 В GUI по умолчанию выбран профиль **Java4Shell · CVE-2026-114938**. Он ищет Java 17 от 17.0.6, ветки 21, 25 и 27, Oracle Java 8 Performance и Oracle GraalVM Enterprise Edition 21.3.20.0.3. Для распознанных сборок Oracle Java SE профиль учитывает исправленные базовые версии 8u513, 17.0.21.1, 21.0.13.1, 25.0.5.1 и 27.0.1.1. Для других поставщиков кандидат требует сверки сборки с их бюллетенем. Для CLI профиль включается флагом `--profile java4shell`. [Матрица Oracle](https://www.oracle.com/security-alerts/cspunov2026.html#AppendixJAVA) · [Версии исправлений Oracle](https://www.oracle.com/java/technologies/javase/27-0-1-1-relnotes.html) · [Исследование Upwind](https://www.upwind.io/blog/java4shell-what-we-know-now-and-what-comes-next)
 
-Чтобы выбрать свои ветки, открой профиль **Инвентаризация по веткам** и введи список в поле **Мажорные версии Java**. В этом режиме по умолчанию выбрана ветка 17 с порогом **17.0.6 включительно**. Обозначение `17` без номера обновления получает `unknown_version`.
+Чтобы выбрать свои ветки, открой профиль **Выбранные версии Java** и введи список в поле **Мажорные версии Java**. В этом режиме по умолчанию выбрана ветка 17 с порогом **17.0.6 включительно**. Обозначение `17` без номера обновления получает `unknown_version`.
 
 [Схема draw.io](docs/architecture.drawio) · [Интерактивная карта HTML](docs/architecture.html)
 
@@ -17,6 +17,8 @@ docker compose up -d --build --wait
 ```
 
 Открой [веб-интерфейс](http://localhost:8080). Порт задаёт `JAVA4SHELL_PORT`. После изменения `.env` выполни `docker compose up -d --force-recreate`. Compose публикует интерфейс на loopback. Отчёты сохраняются в `reports/` на хосте. Веб-интерфейс показывает состояние и ссылки последнего запуска каждого источника с момента запуска сервиса.
+
+При обновлении с версии, где сервис Compose назывался `inventory`, замени ключ сервиса в локальном `compose.override.yaml`, если он используется. Затем выполни `docker compose up -d --build --remove-orphans --wait`, чтобы удалить старый контейнер Compose и освободить порт. Отчёты загружаются из каталога `reports/`.
 
 ### Подключения
 
@@ -122,4 +124,4 @@ python tests/check_live.py --url http://127.0.0.1:18084
 
 При запуске с `--java-majors 17,21,25,27` ожидаются девять кандидатов на источник, поскольку в выборку также входит тестовая Java 21.0.5.
 
-На локальном стенде веб-интерфейс опубликован на порту 18084. Nexus REST и Docker connector доступны контейнеру через `host.docker.internal` на портах 18182 и 18184, пока работают соответствующие port-forward. При исчерпании подсетей Docker Desktop локальный `compose.override.yaml` может задать `network_mode: bridge` для сервиса `inventory`.
+На локальном стенде веб-интерфейс опубликован на порту 18084. Nexus REST и Docker connector доступны контейнеру через `host.docker.internal` на портах 18182 и 18184, пока работают соответствующие port-forward. При исчерпании подсетей Docker Desktop локальный `compose.override.yaml` может задать `network_mode: bridge` для сервиса `java4shell_detector`.

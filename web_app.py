@@ -25,7 +25,7 @@ JOBS = {}
 OUTPUT = Path(os.getenv("INVENTORY_REPORT_DIR", str(ROOT / "reports")))
 PAGE_SIZE = 10
 DIAGNOSTIC_LIMIT = 20
-LOGGER = logging.getLogger("inventory")
+LOGGER = logging.getLogger("java4shell_detector")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 
@@ -351,7 +351,7 @@ def main():
         parser.error("INVENTORY_LOG_LEVEL must be " + ", ".join(LOG_LEVELS))
     logging.basicConfig(level=level, format="%(levelname)s %(name)s %(message)s", stream=sys.stdout)
     with ThreadingHTTPServer((args.host, args.port), Handler) as server:
-        LOGGER.info("Java4Shell listening on %s:%s", args.host, args.port)
+        LOGGER.info("java4shell_detector listening on %s:%s", args.host, args.port)
         server.serve_forever()
 
 

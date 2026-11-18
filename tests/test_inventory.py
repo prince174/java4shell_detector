@@ -572,7 +572,7 @@ class ConsoleTests(unittest.TestCase):
             *[{"event": "http", "operation": "/assets", "http_status": 403, "ok": False,
                "seconds": 0.1} for _ in range(22)],
         ]
-        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("inventory", level="DEBUG") as log:
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("java4shell_detector", level="DEBUG") as log:
             with patch("web_app.OUTPUT", Path(tmp)), patch("web_app.subprocess.Popen") as popen:
                 process = popen.return_value.__enter__.return_value
                 process.stdout = [json.dumps(event) for event in events]
@@ -590,7 +590,7 @@ class ConsoleTests(unittest.TestCase):
     def test_datacenter_failure_reports_cause_and_logs_redacted_diagnostics(self):
         job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),
                "messages": [], "diagnostics": [], "provider": "datacenter", "debug": True}
-        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("inventory", level="DEBUG") as log:
+        with tempfile.TemporaryDirectory() as tmp, self.assertLogs("java4shell_detector", level="DEBUG") as log:
             env = {"BITBUCKET_TOKEN": "fixture-secret", "BITBUCKET_ALLOW_HTTP_AUTH": "0"}
             with patch("web_app.OUTPUT", Path(tmp)), patch.dict(os.environ, env):
                 run_job("bitbucket", job, ["--provider=datacenter", "--url=http://127.0.0.1:1"])

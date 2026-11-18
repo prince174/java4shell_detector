@@ -102,6 +102,10 @@ class ApiHttpError(RuntimeError):
         self.status = status
 
 
+class ApiTimeoutError(RuntimeError):
+    pass
+
+
 class Api:
     def __init__(self, base, authorization, timeout, delay=0, progress=False, allow_http_auth=False):
         parsed = urlsplit(base)
@@ -142,6 +146,8 @@ class Api:
             raise ApiHttpError(status, operation) from None
         except (URLError, OSError) as exc:
             status = None
+            if isinstance(exc, TimeoutError) or isinstance(getattr(exc, "reason", None), TimeoutError):
+                raise ApiTimeoutError(f"Request timed out at {operation}") from None
             raise RuntimeError(f"Request failed at {operation}: {exc}") from None
         finally:
             self.finished_at = time.monotonic()

@@ -16,7 +16,7 @@ from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
 from inventory_common import (
-    Api, ApiHttpError, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
+    Api, ApiHttpError, ApiTimeoutError, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
     report_progress, write_reports,
 )
 
@@ -79,8 +79,8 @@ def repository_catalog(api, discovery):
     if discovery != "extdirect":
         try:
             return api.json(API_ROOT + "/repositories")
-        except ApiHttpError as exc:
-            if discovery != "auto" or exc.status not in EXTDIRECT_FALLBACK_CODES:
+        except (ApiHttpError, ApiTimeoutError) as exc:
+            if discovery != "auto" or (isinstance(exc, ApiHttpError) and exc.status not in EXTDIRECT_FALLBACK_CODES):
                 raise
     return extdirect_read(api, "coreui_Repository", "readReferences", {})
 
@@ -90,8 +90,8 @@ def repository_assets(api, repository, discovery):
         try:
             yield from docker_assets(api, repository)
             return
-        except ApiHttpError as exc:
-            if discovery != "auto" or exc.status not in EXTDIRECT_FALLBACK_CODES:
+        except (ApiHttpError, ApiTimeoutError) as exc:
+            if discovery != "auto" or (isinstance(exc, ApiHttpError) and exc.status not in EXTDIRECT_FALLBACK_CODES):
                 raise
     pending = ["v2"]
     seen = set()

@@ -14,11 +14,15 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
+from urllib.error import URLError
 from unittest.mock import patch
 
 import bitbucket_inventory as bitbucket
 import nexus_inventory as nexus
-from inventory_common import Api, ApiHttpError, JAVA4SHELL_MAJORS, classify, java4shell_result, parse_java_majors, write_reports
+from inventory_common import (
+    Api, ApiHttpError, ApiTimeoutError, JAVA4SHELL_MAJORS, classify, java4shell_result,
+    parse_java_majors, write_reports,
+)
 from web_app import diagnostic, make_flags, results_page, run_job, stats, update_stats
 
 
@@ -225,6 +229,13 @@ COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
 
 
 class NexusTests(unittest.TestCase):
+    def test_api_timeouts_are_distinct_from_connection_errors(self):
+        api = Api("https://nexus.invalid", None, 1)
+        for failure in (TimeoutError("read deadline"), URLError(TimeoutError("connect deadline"))):
+            with patch.object(api.opener, "open", side_effect=failure):
+                with self.assertRaisesRegex(ApiTimeoutError, "Request timed out at /service/rest/v1/assets"):
+                    api.json("/service/rest/v1/assets")
+
     def test_extdirect_discovers_tags_and_digests_when_rest_is_blocked(self):
         digest = "sha256:" + "a" * 64
         tree = {
@@ -239,9 +250,10 @@ class NexusTests(unittest.TestCase):
 
         class FixtureApi:
             base = "https://nexus.invalid"
+            failure = ApiHttpError(404, "/service/rest/v1/assets")
 
             def json(self, path, params=None):
-                raise ApiHttpError(404, path)
+                raise self.failure
 
             def read(self, path, *, data, extra_headers):
                 self_test.assertEqual(path, "/service/extdirect")
@@ -265,6 +277,14 @@ class NexusTests(unittest.TestCase):
         self.assertIn(("coreui_Browse", "read", {"repositoryName": "images", "node": "v2"}), calls)
         with self.assertRaises(ApiHttpError):
             list(nexus.repository_assets(api, "images", "rest"))
+        api.failure = ApiTimeoutError("Request timed out")
+        self.assertEqual(nexus.repository_catalog(api, "auto"), [repository])
+        self.assertEqual(len(list(nexus.repository_assets(api, "images", "auto"))), 2)
+        with self.assertRaises(ApiTimeoutError):
+            list(nexus.repository_assets(api, "images", "rest"))
+        api.failure = RuntimeError("DNS lookup failed")
+        with self.assertRaisesRegex(RuntimeError, "DNS lookup failed"):
+            list(nexus.repository_assets(api, "images", "auto"))
 
     def test_path_based_routing_and_explicit_override(self):
         digest = "sha256:" + "a" * 64

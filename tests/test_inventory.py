@@ -506,6 +506,17 @@ class NexusTests(unittest.TestCase):
         self.assertIn("format is 'maven2'", errors[0]["error"])
         self.assertIn("missing from the Nexus catalog", errors[1]["error"])
 
+    def test_nexus_cli_prints_coverage_error_to_stderr(self):
+        with tempfile.TemporaryDirectory() as output:
+            argv = ["nexus_inventory.py", "--url", "https://nexus.invalid",
+                    "--repository", "aa-docker-prod", "--output", output]
+            with (patch("sys.argv", argv), patch.dict(os.environ, {}, clear=True),
+                  patch.object(nexus, "load_env"), patch.object(nexus.shutil, "which", return_value="crane"),
+                  patch.object(nexus, "repository_catalog", return_value=[]),
+                  contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as stderr):
+                self.assertEqual(nexus.main(), 2)
+            self.assertIn("aa-docker-prod: Repository missing from the Nexus catalog", stderr.getvalue())
+
     def test_java4shell_report_reads_graalvm_product_version_separately(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
             archive = Path(directory, "rootfs.tar")

@@ -9,6 +9,7 @@ import re
 import secrets
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -412,7 +413,7 @@ def main():
             result = inventory(api, registry, args, mappings, workdir)
     except ERRORS as exc:
         parser.error(str(exc))
-    return write_reports(args.output, {"source": "nexus", "url": args.url,
+    code = write_reports(args.output, {"source": "nexus", "url": args.url,
                                        "repositories": args.repository,
                                        "include_proxy": args.include_proxy,
                                        "discovery": args.discovery,
@@ -420,6 +421,12 @@ def main():
                                        "java_majors": args.java_majors,
                                        "profile": args.profile,
                                        "registry_mappings": mappings}, *result)
+    if not args.progress:
+        for row in result[2]:
+            context = " / ".join(str(row[key]) for key in ("stage", "repository", "image", "reference")
+                                 if row.get(key))
+            print(f"{context or 'Nexus'}: {row['error']}", file=sys.stderr)
+    return code
 
 
 if __name__ == "__main__":

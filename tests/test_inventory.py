@@ -534,6 +534,19 @@ class NexusTests(unittest.TestCase):
                          [("17.0.6+10", "candidate"), ("", "unknown_version")])
         self.assertEqual(findings[0]["vendor"], "Fixture")
 
+    def test_release_reads_version_after_utf8_bom(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, "rootfs.tar")
+            tar_fixture(archive, {
+                "runtime/release": 'JAVA_VERSION="17.0.6"\r\nJAVA_VENDOR="Fixture"\r\n'.encode("utf-8-sig"),
+                "runtime/bin/java.exe": b"fixture",
+            })
+            finding, = nexus.java_files(archive)
+        self.assertEqual(
+            (finding["version"], finding["status"], finding["role"], finding["vendor"], finding["evidence"]),
+            ("17.0.6", "candidate", "image_runtime", "Fixture", "/runtime/release"),
+        )
+
     def test_deduplicate_manifest_alias_keep_untagged_digest(self):
         tagged_digest = "sha256:" + "1" * 64
         untagged_digest = "sha256:" + "2" * 64

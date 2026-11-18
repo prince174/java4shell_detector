@@ -68,7 +68,7 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 <label>Профиль <select name="profile"><option value="java4shell">Java4Shell · CVE-2026-114938</option><option value="inventory">Инвентаризация по веткам</option></select></label>
 <label class="java-majors" hidden>Мажорные версии Java <input name="javaMajors" value="17" placeholder="17,21,25,27" required disabled></label>
 <label class="check"><input name="includeProxy" type="checkbox"> Включить закэшированные образы proxy</label>
-<label>Пауза между REST GET, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
+<label>Пауза между запросами, с <input name="delay" type="number" min="0" step="any" value="0.1" required></label>
 <button>Опросить Nexus</button>
 </form>
 <div class="status" aria-live="polite"><strong class="state">Готов к запуску</strong><div class="metrics"></div><output></output><pre class="hint diagnostics" hidden></pre><div class="reports"></div></div>
@@ -252,7 +252,7 @@ function render(section, job) {
   section.querySelector('.state').textContent = stateNames[job.state] + ' · ' + Math.floor(job.elapsed) + ' с';
   const metrics = section.querySelector('.metrics');
   metrics.replaceChildren();
-  showStats(metrics, 'REST GET', job.http);
+  showStats(metrics, section.id === 'nexus' ? 'Nexus API · GET / POST' : 'REST GET', job.http);
   if (section.id === 'nexus') showStats(metrics, 'Операции Docker Registry', job.registry);
   const report = job.summary;
   if (report) metrics.append(element('p', 'Объектов: ' + report.assets + ' · Кандидатов: ' + report.candidates + ' · Ошибок охвата: ' + report.errors));

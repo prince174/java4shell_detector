@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import bitbucket_inventory as bitbucket
 import nexus_inventory as nexus
-from inventory_common import Api, JAVA4SHELL_MAJORS, classify, java4shell_result, parse_java_majors, write_reports
+from inventory_common import Api, ApiHttpError, JAVA4SHELL_MAJORS, classify, java4shell_result, parse_java_majors, write_reports
 from web_app import diagnostic, make_flags, results_page, run_job, stats, update_stats
 
 
@@ -225,6 +225,47 @@ COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
 
 
 class NexusTests(unittest.TestCase):
+    def test_extdirect_discovers_tags_and_digests_when_rest_is_blocked(self):
+        digest = "sha256:" + "a" * 64
+        tree = {
+            "v2": [("v2/blobs", False), ("v2/team", False)],
+            "v2/team": [("v2/team/image", False)],
+            "v2/team/image": [("v2/team/image/tags", False), ("v2/team/image/manifests", False)],
+            "v2/team/image/tags": [("v2/team/image/tags/1.0", True)],
+            "v2/team/image/manifests": [("v2/team/image/manifests/" + digest.replace(":", "%3A"), True)],
+        }
+        repository = {"name": "images", "format": "docker", "type": "hosted"}
+        calls = []
+
+        class FixtureApi:
+            base = "https://nexus.invalid"
+
+            def json(self, path, params=None):
+                raise ApiHttpError(404, path)
+
+            def read(self, path, *, data, extra_headers):
+                self_test.assertEqual(path, "/service/extdirect")
+                csrf = extra_headers["NX-ANTI-CSRF-TOKEN"]
+                self_test.assertEqual(extra_headers["Cookie"], f"NX-ANTI-CSRF-TOKEN={csrf}")
+                payload = json.loads(data)
+                action, method = payload["action"], payload["method"]
+                params, = payload["data"]
+                calls.append((action, method, params))
+                if action == "coreui_Repository":
+                    entries = [repository]
+                else:
+                    entries = [{"id": node, "leaf": leaf} for node, leaf in tree[params["node"]]]
+                return json.dumps({"result": {"success": True, "data": entries}}).encode()
+
+        self_test = self
+        api = FixtureApi()
+        self.assertEqual(nexus.repository_catalog(api, "auto"), [repository])
+        self.assertEqual({row["path"] for row in nexus.repository_assets(api, "images", "auto")},
+                         {"v2/team/image/tags/1.0", "v2/team/image/manifests/" + digest})
+        self.assertIn(("coreui_Browse", "read", {"repositoryName": "images", "node": "v2"}), calls)
+        with self.assertRaises(ApiHttpError):
+            list(nexus.repository_assets(api, "images", "rest"))
+
     def test_path_based_routing_and_explicit_override(self):
         digest = "sha256:" + "a" * 64
 
@@ -252,7 +293,7 @@ class NexusTests(unittest.TestCase):
 
         registry = FixtureRegistry()
         with tempfile.TemporaryDirectory() as tmp:
-            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,))
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="auto")
             assets, _, errors = nexus.inventory(
                 FixtureApi(), registry, args, {"port-hosted": "https://nexus.example.invalid:18443"}, tmp
             )
@@ -285,7 +326,7 @@ class NexusTests(unittest.TestCase):
                 return [{"name": "maven-hosted", "format": "maven2", "type": "hosted"}]
 
         with tempfile.TemporaryDirectory() as tmp:
-            args = argparse.Namespace(repository=["maven-hosted", "unlisted"], include_proxy=False)
+            args = argparse.Namespace(repository=["maven-hosted", "unlisted"], include_proxy=False, discovery="auto")
             assets, findings, errors = nexus.inventory(NexusApi(), None, args, {}, tmp)
         self.assertEqual((assets, findings), ([], []))
         self.assertIn("format is 'maven2'", errors[0]["error"])
@@ -348,7 +389,8 @@ class NexusTests(unittest.TestCase):
         registry = Registry()
         with tempfile.TemporaryDirectory() as directory:
             assets, findings, errors = nexus.inventory(
-                NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,)),
+                NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,),
+                                                         discovery="auto"),
                 {"hosted": "registry.example:5000"}, directory)
         self.assertFalse(errors)
         self.assertEqual(registry.exported, [tagged_digest, untagged_digest])
@@ -412,7 +454,7 @@ class NexusTests(unittest.TestCase):
                     return b'{"config":{"mediaType":"application/vnd.oci.image.config.v1+json"},"layers":[]}'
 
         with tempfile.TemporaryDirectory() as directory:
-            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,))
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="auto")
             assets, findings, errors = nexus.inventory(
                 FixtureApi(), FixtureRegistry(), args, {"hosted": "registry.invalid"}, directory
             )

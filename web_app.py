@@ -85,7 +85,7 @@ def run_job(source, job, flags):
                         operation = event["operation"]
                         status = "OK" if event["ok"] else "ошибка"
                         if event["event"] == "http":
-                            operation = f"GET {event.get('target', '')}{operation}"
+                            operation = f"{event.get('method', 'GET')} {event.get('target', '')}{operation}"
                             status = event.get("http_status") or "нет HTTP-ответа"
                         detail = f"{operation} — {status} ({event['seconds']} с)"
                         if event["ok"]:
@@ -181,7 +181,7 @@ def result_groups(path, stamp):
             key = (repository, image, reference)
             separator = "@" if reference.startswith("sha256:") else ":"
             title = f"{image}{separator}{reference}"
-            asset_path = quote(f"v2/{image}/manifests/{reference}", safe="")
+            asset_path = quote(row.get("asset_path") or f"v2/{image}/manifests/{reference}", safe="")
             url = f"{base}/#browse/browse:{quote(repository, safe='')}:{asset_path}" if base else ""
         else:
             key = (repository,)

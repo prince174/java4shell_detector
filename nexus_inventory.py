@@ -6,23 +6,27 @@ import math
 import os
 import posixpath
 import re
+import secrets
 import shutil
 import subprocess
 import tarfile
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 from inventory_common import (
-    Api, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
+    Api, ApiHttpError, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
     report_progress, write_reports,
 )
 
 API_ROOT = "/service/rest/v1"
+DISCOVERY_MODES = ("auto", "rest", "extdirect")
+EXTDIRECT_FALLBACK_CODES = {403, 404, 405}
 ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError, tarfile.TarError)
 DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
 MANIFEST_PATH = re.compile(r"(?:^|/)v2/(.+)/manifests/([^/]+)$")
+BROWSE_TAG_PATH = re.compile(r"^v2/(.+)/tags/([^/]+)$")
 IMAGE_NAME = re.compile(r"[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*(?:/[a-z0-9]+(?:(?:[._]|__|-+)[a-z0-9]+)*)*")
 TAG = re.compile(r"[\w][\w.-]{0,127}", re.ASCII)
 RUNTIME_FILE = re.compile(r"(?:^|/)(?:bin/java(?:\.exe)?|libjvm\.so|libjvm\.dylib|jvm\.dll)$", re.I)
@@ -42,6 +46,70 @@ def docker_assets(api, repository):
         if not token:
             return
     raise ValueError("Repeated Nexus continuation token")
+
+
+def extdirect_read(api, action, method, params):
+    target = urlsplit(api.base)
+    csrf = secrets.token_hex(16)
+    headers = {
+        "Content-Type": "application/json",
+        "X-Nexus-UI": "true",
+        "X-Requested-With": "XMLHttpRequest",
+        "Origin": f"{target.scheme}://{target.netloc}",
+        "Referer": api.base + "/",
+        "NX-ANTI-CSRF-TOKEN": csrf,
+        "Cookie": f"NX-ANTI-CSRF-TOKEN={csrf}",
+    }
+    payload = {"action": action, "method": method, "data": [params], "type": "rpc", "tid": 1}
+    response = json.loads(api.read("/service/extdirect", data=json.dumps(payload).encode(),
+                                   extra_headers=headers))
+    result = response.get("result") if isinstance(response, dict) else None
+    if not isinstance(result, dict) or result.get("success") is not True:
+        message = response.get("message") if isinstance(response, dict) else None
+        if not message and isinstance(result, dict):
+            message = result.get("message")
+        raise RuntimeError(f"Nexus ExtDirect {action}.{method} failed: {message or 'invalid RPC response'}")
+    rows = result.get("data")
+    if not isinstance(rows, list):
+        raise ValueError(f"Nexus ExtDirect {action}.{method} returned an unexpected result")
+    return rows
+
+
+def repository_catalog(api, discovery):
+    if discovery != "extdirect":
+        try:
+            return api.json(API_ROOT + "/repositories")
+        except ApiHttpError as exc:
+            if discovery != "auto" or exc.status not in EXTDIRECT_FALLBACK_CODES:
+                raise
+    return extdirect_read(api, "coreui_Repository", "readReferences", {})
+
+
+def repository_assets(api, repository, discovery):
+    if discovery != "extdirect":
+        try:
+            yield from docker_assets(api, repository)
+            return
+        except ApiHttpError as exc:
+            if discovery != "auto" or exc.status not in EXTDIRECT_FALLBACK_CODES:
+                raise
+    pending = ["v2"]
+    seen = set()
+    while pending:
+        node = pending.pop()
+        if node in seen:
+            continue
+        seen.add(node)
+        entries = extdirect_read(api, "coreui_Browse", "read",
+                                 {"repositoryName": repository, "node": node})
+        for entry in entries:
+            path = unquote(entry["id"])
+            if not path.startswith(unquote(node) + "/") or path == "v2/blobs":
+                continue
+            if entry.get("leaf") is False or entry.get("type") == "folder":
+                pending.append(entry["id"])
+            elif MANIFEST_PATH.fullmatch(path) or BROWSE_TAG_PATH.fullmatch(path):
+                yield {"path": path}
 
 
 def endpoint(value):
@@ -206,7 +274,8 @@ def inventory(api, registry, args, mappings, workdir):
     scans = {}
     archive_path = Path(workdir, "rootfs.tar")
     try:
-        catalog = api.json(API_ROOT + "/repositories")
+        discovery = args.discovery
+        catalog = repository_catalog(api, discovery)
         repositories = {repo["name"]: repo for repo in catalog}
         requested = set(args.repository) if args.repository else {
             name for name, repo in repositories.items() if repo["format"] == "docker" and repo["type"] in
@@ -226,11 +295,11 @@ def inventory(api, registry, args, mappings, workdir):
                     nexus_url = urlsplit(api.base)
                     registry_url = f"{nexus_url.scheme}://{nexus_url.netloc}/{repository}"
                 host, prefix, insecure = endpoint(registry_url)
-                seen_refs = set()
-                for item in docker_assets(api, repository):
-                    match = MANIFEST_PATH.search(item["path"])
+                seen_refs = {}
+                for item in repository_assets(api, repository, discovery):
+                    match = MANIFEST_PATH.search(item["path"]) or BROWSE_TAG_PATH.fullmatch(item["path"])
                     if match:
-                        seen_refs.add(match.groups())
+                        seen_refs[match.groups()] = item["path"]
                 covered = set()
                 # Nexus lists both tags and digest aliases as assets. Scan tag references first.
                 for image, reference in sorted(seen_refs, key=lambda item: (":" in item[1], *item)):
@@ -238,7 +307,8 @@ def inventory(api, registry, args, mappings, workdir):
                     if digest_reference and (image, reference) in covered:
                         continue
                     location = {"source": "nexus", "repository": repository, "image": image,
-                                "tag": "" if digest_reference else reference, "reference": reference}
+                                "tag": "" if digest_reference else reference, "reference": reference,
+                                "asset_path": seen_refs[image, reference]}
                     index_digest = None
                     errors_before = len(errors)
                     count = 0
@@ -296,6 +366,7 @@ def inventory(api, registry, args, mappings, workdir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url")
+    parser.add_argument("--discovery", choices=DISCOVERY_MODES)
     parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
                         help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")
@@ -316,6 +387,9 @@ def main():
         parser.error("Use positive timeouts and a non-negative delay")
     try:
         load_env()
+        args.discovery = args.discovery or os.getenv("NEXUS_DISCOVERY", "auto")
+        if args.discovery not in DISCOVERY_MODES:
+            raise ValueError("NEXUS_DISCOVERY must be auto, rest or extdirect")
         args.url = args.url or os.getenv("NEXUS_URL", "")
         mappings = json.loads(os.getenv("NEXUS_REGISTRIES", "{}"))
         if not isinstance(mappings, dict):
@@ -351,6 +425,7 @@ def main():
     return write_reports(args.output, {"source": "nexus", "url": args.url,
                                        "repositories": args.repository,
                                        "include_proxy": args.include_proxy,
+                                       "discovery": args.discovery,
                                        "request_delay_seconds": args.delay,
                                        "java_majors": args.java_majors,
                                        "profile": args.profile,

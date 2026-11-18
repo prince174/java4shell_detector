@@ -96,6 +96,12 @@ class NoRedirect(HTTPRedirectHandler):
         return None
 
 
+class ApiHttpError(RuntimeError):
+    def __init__(self, status, operation):
+        super().__init__(f"HTTP {status} at {operation}")
+        self.status = status
+
+
 class Api:
     def __init__(self, base, authorization, timeout, delay=0, progress=False, allow_http_auth=False):
         parsed = urlsplit(base)
@@ -112,13 +118,14 @@ class Api:
         self.finished_at = None
         self.opener = build_opener(NoRedirect())
 
-    def read(self, path, params=None, max_bytes=32 * 1024 * 1024, accept="application/json"):
+    def read(self, path, params=None, max_bytes=32 * 1024 * 1024, accept="application/json", *,
+             data=None, extra_headers=None):
         operation = path.split("?", 1)[0]
         query = "?" + urlencode(params) if params else ""
-        headers = {"Accept": accept}
+        headers = {"Accept": accept, **(extra_headers or {})}
         if self.authorization:
             headers["Authorization"] = self.authorization
-        request = Request(self.base + path + query, headers=headers)
+        request = Request(self.base + path + query, data=data, headers=headers)
         if self.finished_at is not None:
             deadline = self.finished_at + self.delay
             while (remaining := deadline - time.monotonic()) > 0:
@@ -132,7 +139,7 @@ class Api:
         except HTTPError as exc:
             status = exc.code
             exc.close()
-            raise RuntimeError(f"HTTP {exc.code} at {operation}") from None
+            raise ApiHttpError(status, operation) from None
         except (URLError, OSError) as exc:
             status = None
             raise RuntimeError(f"Request failed at {operation}: {exc}") from None
@@ -140,7 +147,7 @@ class Api:
             self.finished_at = time.monotonic()
             report_progress(self.progress, "http", self.finished_at - started_at,
                             status is not None and 200 <= status < 300, operation,
-                            http_status=status, target=self.base)
+                            http_status=status, target=self.base, method=request.get_method())
         if len(data) > max_bytes:
             raise ValueError(f"Response exceeds {max_bytes} bytes at {operation}")
         return data

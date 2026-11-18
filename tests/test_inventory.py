@@ -518,6 +518,14 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "number of RPC responses"):
             nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_extdirect_preserves_nested_access_error(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        api.read = lambda *args, **kwargs: json.dumps({
+            "result": {"success": False, "errors": {"message": "Not authorized to browse images"}}
+        }).encode()
+        with self.assertRaisesRegex(RuntimeError, "Not authorized to browse images"):
+            nexus.extdirect_read(api, "coreui_Browse", "read", {})
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

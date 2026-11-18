@@ -57,6 +57,9 @@ def extdirect_read(api, action, method, params):
         message = response.get("message") if isinstance(response, dict) else None
         if not message and isinstance(result, dict):
             message = result.get("message")
+        errors = result.get("errors") if isinstance(result, dict) else None
+        if not message and isinstance(errors, dict):
+            message = errors.get("message")
         raise RuntimeError(f"Nexus ExtDirect {action}.{method} failed: {message or 'invalid RPC response'}")
     rows = result.get("data")
     if not isinstance(rows, list):

@@ -8,10 +8,10 @@
 
 ## Запуск
 
-Требуется Docker с Compose 2.30+ для чтения `env_file` в режиме `raw`. В PowerShell из папки проекта:
+Для запуска на Linux и macOS требуется Docker с Compose 2.30+ для чтения `env_file` в режиме `raw`. Выполни из корня проекта:
 
-```powershell
-if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```sh
+test -f .env || cp .env.example .env
 # Укажи реальные адреса и учётные данные в .env.
 docker compose up -d --build --wait
 ```
@@ -93,11 +93,34 @@ GUI передаёт фильтры, профиль Java и задержку л�
 
 CLI работает на Python 3.11+ без сторонних Python-пакетов. Для Bitbucket нужен `git` в PATH, для Nexus — `crane`. Оба входят в образ Compose. При сборке образа Git устанавливается из Debian APT, поэтому на стенде нужен доступ к настроенному зеркалу Debian.
 
-```powershell
-python bitbucket_inventory.py --provider datacenter --project APP --branch 'release/*' --delay 0.1
-python bitbucket_inventory.py --provider cloud --project J4S01 --delay 0.2
-python nexus_inventory.py --repository java4shell-fixtures --java-majors 17,21,25,27 --delay 0.1
+```sh
+python3 bitbucket_inventory.py --provider datacenter --project APP --branch 'release/*' --delay 0.1
+python3 bitbucket_inventory.py --provider cloud --project J4S01 --delay 0.2
+python3 nexus_inventory.py --repository java4shell-fixtures --java-majors 17,21,25,27 --delay 0.1
 ```
+
+### Разовый запуск Nexus в контейнере или TeamCity
+
+Из корня проекта выполни команду ниже. Compose соберёт образ и запустит одноразовый контейнер с `crane`.
+
+```sh
+docker compose run --build --rm --no-deps -T java4shell_detector \
+  python nexus_inventory.py --repository java4shell-fixtures \
+  --java-majors 17,21,25,27 --delay 0.1 --output /reports/nexus-cli
+```
+
+Замени `java4shell-fixtures` на имя нужного Docker-репозитория. JSON и CSV будут доступны в `reports/nexus-cli/` в рабочем каталоге. Код выхода `2` означает ошибки охвата. В этом случае сканер сохраняет частичные результаты.
+
+Для TeamCity используй отдельный шаг **Command Line → Custom script** на агенте Linux или macOS с Docker Compose. Рабочий каталог шага — корень checkout. Перед запуском предоставь `.env` из защищённых настроек агента. Если используешь параметры TeamCity `env.NEXUS_URL`, `env.NEXUS_REST_USERNAME` и `env.NEXUS_REST_PASSWORD`, передай их в контейнер, добавив перед именем сервиса параметры `-e NEXUS_URL -e NEXUS_REST_USERNAME -e NEXUS_REST_PASSWORD`. Пароль задай как параметр типа **Password**.
+
+В шаге TeamCity используй `--output /reports/nexus-cli/%system.teamcity.build.id%`, чтобы каждый билд публиковал свои результаты. В **Artifact paths** укажи файлы отчёта. Чтобы получить частичные результаты при коде `2`, включи публикацию артефактов при неуспешной сборке.
+
+```text
+reports/nexus-cli/%system.teamcity.build.id%/inventory.json => nexus
+reports/nexus-cli/%system.teamcity.build.id%/candidates.csv => nexus
+```
+
+[Настройка шага TeamCity](https://www.jetbrains.com/help/teamcity/command-line.html) · [Публикация артефактов](https://www.jetbrains.com/help/teamcity/configuring-general-settings.html)
 
 По умолчанию Bitbucket проверяет основную ветку. Для всех веток передай `--branch '*'`. Для Nexus можно передать `--include-proxy`. CLI возвращает код 2 при ошибках охвата и сохраняет доступные результаты. Опция `--progress` выводит события HTTP и операций Registry для мониторинга.
 
@@ -111,11 +134,11 @@ Dependency-Track покажет JVM, если в него загружен SBOM 
 
 Ошибки опроса отображаются в GUI под счётчиками запросов. Для логов Compose переменная `INVENTORY_LOG_LEVEL` в `.env` принимает `DEBUG` (по умолчанию), `INFO`, `WARNING`, `ERROR` или `CRITICAL`. На уровне `DEBUG` в логах видны запросы к API и операции `crane` с результатом и временем. Параметры URL, заголовки авторизации и тела ответов в трассировку не входят. После смены уровня пересоздай контейнер и смотри `docker compose logs -f --tail=10`. Код `202` для `POST /api/start/bitbucket` означает, что опрос принят. Его состояние и диагностику показывает `GET /api/status`.
 
-```powershell
-python -m unittest discover -s tests -v
+```sh
+python3 -m unittest discover -s tests -v
 docker compose config --quiet
 docker compose up -d --build --wait
-python tests/check_live.py --url http://127.0.0.1:18084
+python3 tests/check_live.py --url http://127.0.0.1:18084
 ```
 
 Модульные и интеграционные тесты запускаются без токенов. Они проверяют границы версий, пагинацию и задержку REST на локальном Data Center API, режим Cloud на фикстурах, файлы рантайма, мультплатформенные манифесты и удаление дублей Nexus.

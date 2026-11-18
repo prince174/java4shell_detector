@@ -113,23 +113,32 @@ class Registry:
         self.password = os.getenv("NEXUS_DOCKER_PASSWORD")
         if bool(self.username) != bool(self.password):
             raise ValueError("Set both NEXUS_DOCKER_USERNAME and NEXUS_DOCKER_PASSWORD")
+        self.rest_host = None
+        if not self.username:
+            self.username = os.getenv("NEXUS_REST_USERNAME")
+            self.password = os.getenv("NEXUS_REST_PASSWORD")
+            if self.username and self.password:
+                self.rest_host = urlsplit(args.url).hostname
         self.auth_host = None
         for key in ("BITBUCKET_TOKEN", "BITBUCKET_CLOUD_TOKEN", "NEXUS_TOKEN",
                     "NEXUS_REST_PASSWORD", "NEXUS_DOCKER_PASSWORD"):
             self.env.pop(key, None)
 
     def run(self, command, ref, insecure, *options):
-        if self.username:
+        host = ref.split("/", 1)[0]
+        env = self.env.copy()
+        if self.username and self.password and (
+            self.rest_host is None or urlsplit("//" + host).hostname == self.rest_host
+        ):
             if insecure and self.env.get("NEXUS_ALLOW_HTTP_AUTH") != "1":
                 raise ValueError("Docker credentials from .env require HTTPS registry endpoints")
-            host = ref.split("/", 1)[0]
             if host != self.auth_host:
                 auth = base64.b64encode(f"{self.username}:{self.password}".encode()).decode()
                 Path(self.workdir, "config.json").write_text(json.dumps({
                     "auths": {host: {"auth": auth}}
                 }), encoding="utf-8")
-                self.env["DOCKER_CONFIG"] = self.workdir
                 self.auth_host = host
+            env["DOCKER_CONFIG"] = self.workdir
         command_line = [self.args.crane, command, ref, *options]
         if insecure:
             command_line.append("--insecure")
@@ -137,7 +146,7 @@ class Registry:
         ok = False
         try:
             result = subprocess.run(command_line, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                                    env=self.env, timeout=self.args.scan_timeout, check=False)
+                                    env=env, timeout=self.args.scan_timeout, check=False)
             ok = result.returncode == 0
         except subprocess.TimeoutExpired:
             raise RuntimeError(f"crane {command} timed out for {ref}") from None

@@ -355,6 +355,7 @@ class NexusTests(unittest.TestCase):
 
     def test_credentials_follow_the_resolved_registry_host(self):
         env = {"NEXUS_DOCKER_USERNAME": "reader", "NEXUS_DOCKER_PASSWORD": "fixture",
+               "NEXUS_REST_USERNAME": "other", "NEXUS_REST_PASSWORD": "rest-fixture",
                "NEXUS_ALLOW_HTTP_AUTH": "0"}
         with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env):
             registry = nexus.Registry(argparse.Namespace(crane="crane", scan_timeout=5, progress=False), tmp)
@@ -368,6 +369,23 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "require HTTPS"):
                     registry.run("digest", "nexus.example.invalid/auto-hosted/team/demo:1.0", True)
                 self.assertEqual(run.call_count, 1)
+
+    def test_registry_reuses_rest_basic_credentials_only_on_nexus_host(self):
+        env = {"NEXUS_REST_USERNAME": "reader", "NEXUS_REST_PASSWORD": "rest-fixture"}
+        args = argparse.Namespace(url="https://nexus.example.invalid", crane="crane",
+                                  scan_timeout=5, progress=False)
+        with tempfile.TemporaryDirectory() as tmp, patch.dict(os.environ, env, clear=True):
+            registry = nexus.Registry(args, tmp)
+            with patch("nexus_inventory.subprocess.run") as run:
+                run.return_value = argparse.Namespace(returncode=0, stdout=b"result")
+                host = "nexus.example.invalid:18443"
+                registry.run("digest", f"{host}/demo:1.0", False)
+                settings = json.loads(Path(tmp, "config.json").read_text(encoding="utf-8"))
+                self.assertEqual(base64.b64decode(settings["auths"][host]["auth"]), b"reader:rest-fixture")
+                self.assertEqual(run.call_args.kwargs["env"]["DOCKER_CONFIG"], tmp)
+                self.assertNotIn("NEXUS_REST_PASSWORD", run.call_args.kwargs["env"])
+                registry.run("digest", "other.example.invalid/demo:1.0", False)
+                self.assertNotIn("DOCKER_CONFIG", run.call_args.kwargs["env"])
 
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:

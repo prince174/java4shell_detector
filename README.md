@@ -25,7 +25,7 @@ docker compose up -d --build --wait
 | Bitbucket Data Center | `BITBUCKET_URL` с контекстным путём, если он используется, и `BITBUCKET_TOKEN` с правом чтения репозиториев |
 | Bitbucket Cloud | `BITBUCKET_CLOUD_WORKSPACE`, `BITBUCKET_CLOUD_EMAIL` и `BITBUCKET_CLOUD_TOKEN` для API token. Для Bearer access token email оставь пустым |
 | Nexus REST | `NEXUS_URL` и `NEXUS_REST_USERNAME`/`NEXUS_REST_PASSWORD` для Basic или `NEXUS_TOKEN` для Bearer при поддержке на стороне сервера |
-| Nexus Docker Registry | По умолчанию используется хост из `NEXUS_URL` и имя репозитория в пути. Для Docker-аутентификации укажи `NEXUS_DOCKER_USERNAME`/`NEXUS_DOCKER_PASSWORD` |
+| Nexus Docker Registry | На хосте из `NEXUS_URL` используются `NEXUS_REST_USERNAME`/`NEXUS_REST_PASSWORD`. Для отдельной учётной записи или Registry на другом хосте задай `NEXUS_DOCKER_USERNAME`/`NEXUS_DOCKER_PASSWORD` |
 
 Для GUI платформа выбирается в форме. В CLI исходный режим задаёт `BITBUCKET_PROVIDER` или флаг `--provider`. Значения секретов остаются в окружении сервиса. Формат Compose `raw` сохраняет специальные символы, включая `$`. В `.env` записывай значения без кавычек. Для защищённых корпоративных сервисов используй HTTPS и доверенный сертификат. Переменные `BITBUCKET_ALLOW_HTTP_AUTH=1` и `NEXUS_ALLOW_HTTP_AUTH=1` разрешают аутентификацию по HTTP для изолированного стенда.
 

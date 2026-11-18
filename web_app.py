@@ -91,6 +91,8 @@ def run_job(source, job, flags):
                         if event["ok"]:
                             LOGGER.debug("[%s %s] %s", source, job["id"], redact_diagnostic(detail))
                         else:
+                            if event.get("error"):
+                                detail += " — " + event["error"]
                             diagnostic(source, job, detail)
                 elif line.strip():
                     with LOCK:

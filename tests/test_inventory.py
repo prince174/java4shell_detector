@@ -387,6 +387,25 @@ class NexusTests(unittest.TestCase):
                 registry.run("digest", "other.example.invalid/demo:1.0", False)
                 self.assertNotIn("DOCKER_CONFIG", run.call_args.kwargs["env"])
 
+    def test_registry_failure_progress_includes_redacted_crane_error(self):
+        args = argparse.Namespace(crane="crane", scan_timeout=5, progress=True)
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()) as log:
+            with patch.dict(os.environ, {"NEXUS_TOKEN": "fixture-secret"}, clear=True):
+                registry = nexus.Registry(args, tmp)
+                with patch("nexus_inventory.subprocess.run") as run:
+                    run.return_value = argparse.Namespace(
+                        returncode=1,
+                        stderr=b"Error: GET https://registry.invalid/token?scope=private: UNAUTHORIZED fixture-secret",
+                    )
+                    with self.assertRaisesRegex(RuntimeError, "UNAUTHORIZED"):
+                        registry.run("manifest", "registry.invalid/demo:1.0", False)
+        event = json.loads(log.getvalue())
+        self.assertEqual(event["event"], "registry")
+        self.assertFalse(event["ok"])
+        self.assertIn("UNAUTHORIZED", event["error"])
+        self.assertNotIn("scope=private", event["error"])
+        self.assertNotIn("fixture-secret", event["error"])
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):
@@ -548,6 +567,8 @@ class ConsoleTests(unittest.TestCase):
              "target": "https://nexus.example.invalid", "ok": True, "seconds": 0.02},
             {"event": "registry", "operation": "export registry.example.invalid/demo",
              "ok": True, "seconds": 1.5},
+            {"event": "registry", "operation": "manifest registry.example.invalid/demo",
+             "ok": False, "seconds": 0.2, "error": "UNAUTHORIZED"},
             *[{"event": "http", "operation": "/assets", "http_status": 403, "ok": False,
                "seconds": 0.1} for _ in range(22)],
         ]
@@ -562,7 +583,9 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn("export registry.example.invalid/demo", output)
         self.assertNotIn("continuationToken", output)
         self.assertEqual(output.count("GET /assets"), 22)
-        self.assertEqual(len(job["diagnostics"]), 1)
+        self.assertIn("UNAUTHORIZED", output)
+        self.assertTrue(any("UNAUTHORIZED" in line for line in job["diagnostics"]))
+        self.assertEqual(len(job["diagnostics"]), 2)
 
     def test_datacenter_failure_reports_cause_and_logs_redacted_diagnostics(self):
         job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),

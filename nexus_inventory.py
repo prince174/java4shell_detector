@@ -13,7 +13,7 @@ import tarfile
 import tempfile
 import time
 from pathlib import Path
-from urllib.parse import unquote, urlsplit
+from urllib.parse import quote, unquote, urlsplit
 
 from inventory_common import (
     Api, ApiHttpError, ApiTimeoutError, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
@@ -143,25 +143,28 @@ class Registry:
         if insecure:
             command_line.append("--insecure")
         started_at = time.monotonic()
-        ok = False
+        error = ""
         try:
             result = subprocess.run(command_line, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                     env=env, timeout=self.args.scan_timeout, check=False)
-            ok = result.returncode == 0
         except subprocess.TimeoutExpired:
-            raise RuntimeError(f"crane {command} timed out for {ref}") from None
-        finally:
-            report_progress(self.args.progress, "registry", time.monotonic() - started_at,
-                            ok, f"{command} {ref}")
-        if result.returncode:
-            output = result.stderr.decode("utf-8", errors="replace").splitlines()
-            detail = output[-1] if output else ""
-            for key in ("NEXUS_DOCKER_PASSWORD", "NEXUS_REST_PASSWORD", "NEXUS_TOKEN", "BITBUCKET_TOKEN"):
-                secret = os.getenv(key)
-                if secret:
-                    detail = detail.replace(secret, "[redacted]")
-            detail = re.sub(r"(https?://)[^/@\s]+@", r"\1[redacted]@", detail)
-            raise RuntimeError(f"crane {command} failed for {ref} ({result.returncode}): {detail[:500]}")
+            error = f"crane {command} timed out for {ref}"
+        except OSError as exc:
+            error = f"crane {command} could not start: {exc.strerror}"
+        else:
+            if result.returncode:
+                output = result.stderr.decode("utf-8", errors="replace").splitlines()
+                detail = output[-1] if output else ""
+                for key, secret in os.environ.items():
+                    if secret and key.startswith(("BITBUCKET_", "NEXUS_")) and key.endswith(("_TOKEN", "_PASSWORD")):
+                        detail = detail.replace(secret, "[redacted]").replace(quote(secret, safe=""), "[redacted]")
+                detail = re.sub(r"(https?://)[^/@\s]+@", r"\1[redacted]@", detail)
+                detail = re.sub(r"(https?://[^\s?]+)\?[^\s]+", r"\1", detail)
+                error = f"crane {command} failed for {ref} ({result.returncode}): {detail[:500]}"
+        report_progress(self.args.progress, "registry", time.monotonic() - started_at,
+                        not error, f"{command} {ref}", **({"error": error} if error else {}))
+        if error:
+            raise RuntimeError(error)
         return result.stdout
 
     def manifests(self, name, digest, insecure, platform=None, chain=(), *, on_error=None):

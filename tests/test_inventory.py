@@ -618,6 +618,17 @@ class NexusTests(unittest.TestCase):
             ("17.0.6", "candidate", "image_runtime", "Fixture", "/runtime/release"),
         )
 
+    def test_release_accepts_indented_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, "rootfs.tar")
+            tar_fixture(archive, {
+                "jdk/release": b'  JAVA_VERSION="17.0.6"  \r\n\tIMPLEMENTOR="Fixture"\r\n',
+                "jdk/bin/java": b"fixture",
+            })
+            row, = nexus.java_files(archive)
+        self.assertEqual((row["version"], row["status"], row["vendor"], row["role"]),
+                         ("17.0.6", "candidate", "Fixture", "image_runtime"))
+
     def test_deduplicate_manifest_alias_keep_untagged_digest(self):
         tagged_digest = "sha256:" + "1" * 64
         untagged_digest = "sha256:" + "2" * 64

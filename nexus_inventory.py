@@ -227,7 +227,7 @@ def java_files(archive_path, java_majors=DEFAULT_JAVA_MAJORS):
             path = path_name(member.name)
             if member.isfile() and posixpath.basename(path).lower() == "release" and member.size <= 65536:
                 with archive.extractfile(member) as stream:
-                    values = dict(re.findall(r'^([A-Z][A-Z_]+)="([^"\r\n]*)"\s*$',
+                    values = dict(re.findall(r'^[ \t]*([A-Z][A-Z_]+)="([^"\r\n]*)"[ \t]*\r?$',
                                              stream.read().decode("utf-8-sig", errors="replace"), re.M))
                     version = values.get("JAVA_RUNTIME_VERSION") or values.get("JAVA_VERSION")
                     if version:

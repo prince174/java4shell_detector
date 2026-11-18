@@ -515,6 +515,12 @@ class NexusTests(unittest.TestCase):
                   patch.object(nexus, "repository_catalog", return_value=[]),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as stderr):
                 self.assertEqual(nexus.main(), 2)
+            report = json.loads(Path(output, "inventory.json").read_text(encoding="utf-8"))
+            self.assertEqual(report["summary"]["errors"], 1)
+            with Path(output, "candidates.csv").open(encoding="utf-8-sig", newline="") as stream:
+                candidates = csv.DictReader(stream)
+                self.assertIn("repository", candidates.fieldnames)
+                self.assertEqual(list(candidates), [])
             self.assertIn("aa-docker-prod: Repository missing from the Nexus catalog", stderr.getvalue())
 
     def test_nexus_cli_masks_credentials_in_reported_errors(self):

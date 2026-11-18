@@ -99,7 +99,7 @@ python3 bitbucket_inventory.py --provider cloud --project J4S01 --delay 0.2
 python3 nexus_inventory.py --repository java4shell-fixtures --java-majors 17,21,25,27 --delay 0.1
 ```
 
-### Разовый запуск Nexus в контейнере или TeamCity
+### Разовый запуск Nexus в контейнере
 
 Из корня проекта выполни команду ниже. Compose соберёт образ и запустит одноразовый контейнер с `crane`.
 
@@ -111,14 +111,32 @@ docker compose run --build --rm --no-deps -T java4shell_detector \
 
 Замени `java4shell-fixtures` на имя нужного Docker-репозитория. JSON и CSV будут доступны в `reports/nexus-cli/` в рабочем каталоге. Код выхода `2` означает ошибки охвата. В этом случае сканер сохраняет частичные результаты.
 
-Для TeamCity используй отдельный шаг **Command Line → Custom script** на агенте Linux или macOS с Docker Compose. Рабочий каталог шага — корень checkout. Перед запуском предоставь `.env` из защищённых настроек агента. Если используешь параметры TeamCity `env.NEXUS_URL`, `env.NEXUS_REST_USERNAME` и `env.NEXUS_REST_PASSWORD`, передай их в контейнер, добавив перед именем сервиса параметры `-e NEXUS_URL -e NEXUS_REST_USERNAME -e NEXUS_REST_PASSWORD`. Пароль задай как параметр типа **Password**.
+### Опрос `aa-docker-prod` в TeamCity
 
-В шаге TeamCity используй `--output /reports/nexus-cli/%system.teamcity.build.id%`, чтобы каждый билд публиковал свои результаты. В **Artifact paths** укажи файлы отчёта. Чтобы получить частичные результаты при коде `2`, включи публикацию артефактов при неуспешной сборке.
+В **Parameters** задай переменные окружения шага:
+
+| Параметр | Значение |
+| --- | --- |
+| `env.NEXUS_URL` | Базовый URL Nexus, например `https://nexus.isb` |
+| `env.NEXUS_REST_USERNAME` | Имя пользователя Nexus с правом чтения каталога и образов |
+| `env.NEXUS_REST_PASSWORD` | Пароль Nexus, тип **Password** |
+
+Добавь шаг **Command Line → Custom script** на агенте Linux или macOS с Docker Compose. Рабочий каталог шага — корень checkout.
+
+```sh
+sh scripts/teamcity-nexus-aa-docker-prod.sh "%system.teamcity.build.id%"
+```
+
+[Скрипт](scripts/teamcity-nexus-aa-docker-prod.sh) передаёт значения из окружения TeamCity в контейнер по имени переменной. Для Nexus API и Registry на том же хосте используется одна Basic-пара. Для запуска достаточно параметров TeamCity.
+
+В **General Settings → Artifact paths** укажи два файла:
 
 ```text
 reports/nexus-cli/%system.teamcity.build.id%/inventory.json => nexus
 reports/nexus-cli/%system.teamcity.build.id%/candidates.csv => nexus
 ```
+
+Установи **Publish artifacts → Always**. Сканер с ошибками охвата записывает JSON и CSV и завершает шаг с кодом `2`. TeamCity опубликует частичный отчёт в **Artifacts → nexus** даже при неуспешной сборке. Если ошибка произошла до запуска сканера, отчёты за этот билд ещё не созданы.
 
 [Настройка шага TeamCity](https://www.jetbrains.com/help/teamcity/command-line.html) · [Публикация артефактов](https://www.jetbrains.com/help/teamcity/configuring-general-settings.html)
 

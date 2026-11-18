@@ -197,6 +197,13 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                                  (3, "17.0.6", "candidate", "image_reference"))
 
+    def test_sdkman_java_assignment_accepts_spaces_and_comments(self):
+        for value, status in (("17.0.5-tem", "outside_scope"), ("17.0.6-tem", "candidate")):
+            with self.subTest(value=value):
+                row, = bitbucket.declarations(".sdkmanrc", f"# tools\njava = {value} # selected JDK\n")
+                self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                                 (2, value.removesuffix("-tem"), status, "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

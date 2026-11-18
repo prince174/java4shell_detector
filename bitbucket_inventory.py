@@ -199,8 +199,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             tool, *versions = stripped.partition("#")[0].split()
             if tool == "java":
                 matches.extend(("java-version", version) for version in versions)
-        if name == ".sdkmanrc" and stripped.startswith("java="):
-            matches.append(("java-version", stripped.partition("=")[2]))
+        if name == ".sdkmanrc":
+            sdkman = re.match(r"java\s*=\s*([^#]+)", stripped)
+            if sdkman:
+                matches.append(("java-version", sdkman[1].strip()))
         for key, value in matches:
             if key.lower() in {"release", "source", "target"} and not re.match(r"^\s*(?:\d|\$\{)", value):
                 continue

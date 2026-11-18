@@ -13,7 +13,15 @@ esac
 : "${NEXUS_REST_USERNAME:?Set env.NEXUS_REST_USERNAME in TeamCity}"
 : "${NEXUS_REST_PASSWORD:?Set env.NEXUS_REST_PASSWORD in TeamCity}"
 
+uid=$(id -u)
+if [ "$uid" -eq 0 ]; then
+  printf '%s\n' 'Run the TeamCity agent as a non-root user.' >&2
+  exit 2
+fi
+mkdir -p reports/nexus-cli
+
 exec docker compose run --build --rm --no-deps -T \
+  --user "$uid:$(id -g)" \
   -e NEXUS_URL \
   -e NEXUS_REST_USERNAME \
   -e NEXUS_REST_PASSWORD \

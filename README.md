@@ -13,10 +13,14 @@
 ```sh
 test -f .env || cp .env.example .env
 # Укажи реальные адреса и учётные данные в .env.
+mkdir -p reports
+export JAVA4SHELL_RUN_AS="$(id -u):$(id -g)"
 docker compose up -d --build --wait
 ```
 
 Открой [веб-интерфейс](http://localhost:8080). Порт задаёт `JAVA4SHELL_PORT`. После изменения `.env` выполни `docker compose up -d --force-recreate`. Compose публикует интерфейс на loopback. Отчёты сохраняются в `reports/` на хосте. Веб-интерфейс показывает состояние и ссылки последнего запуска каждого источника с момента запуска сервиса.
+
+Выполняй команды запуска под пользователем без root. Контейнер по умолчанию работает с UID/GID `10001:10001`. На Linux и macOS можно указать UID/GID пользователя, которому доступна запись в `reports/`, через `JAVA4SHELL_RUN_AS`. При обновлении с root-контейнера дай этому пользователю права записи в существующие каталоги `reports/`, `reports/bitbucket/`, `reports/nexus/` и, если использовался CLI или TeamCity, `reports/nexus-cli/`. Например, для каталогов, которые существуют, оператор может применить `sudo chown "$(id -u):$(id -g)" reports reports/bitbucket reports/nexus` перед запуском с UID/GID хоста.
 
 При обновлении с версии, где сервис Compose назывался `inventory`, замени ключ сервиса в локальном `compose.override.yaml`, если он используется. Затем выполни `docker compose up -d --build --remove-orphans --wait`, чтобы удалить старый контейнер Compose и освободить порт. Отчёты загружаются из каталога `reports/`.
 
@@ -101,9 +105,11 @@ python3 nexus_inventory.py --repository java4shell-fixtures --java-majors 17,21,
 
 ### Разовый запуск Nexus в контейнере
 
-Из корня проекта выполни команду ниже. Compose соберёт образ и запустит одноразовый контейнер с `crane`.
+Из корня проекта выполни команды под пользователем без root. Compose соберёт образ и запустит одноразовый контейнер с `crane`.
 
 ```sh
+mkdir -p reports
+export JAVA4SHELL_RUN_AS="$(id -u):$(id -g)"
 docker compose run --build --rm --no-deps -T java4shell_detector \
   python nexus_inventory.py --repository java4shell-fixtures \
   --java-majors 17,21,25,27 --delay 0.1 --output /reports/nexus-cli
@@ -121,7 +127,7 @@ docker compose run --build --rm --no-deps -T java4shell_detector \
 | `env.NEXUS_REST_USERNAME` | Имя пользователя Nexus с правом чтения каталога и образов |
 | `env.NEXUS_REST_PASSWORD` | Пароль Nexus, тип **Password** |
 
-Добавь шаг **Command Line → Custom script** на агенте Linux или macOS с Docker Compose. Рабочий каталог шага — корень checkout.
+Добавь шаг **Command Line → Custom script** на агенте Linux или macOS с Docker Compose. Рабочий каталог шага — корень checkout. Скрипт запускает контейнер с UID/GID пользователя агента, чтобы JSON и CSV в checkout принадлежали этому пользователю.
 
 ```sh
 sh scripts/teamcity-nexus-aa-docker-prod.sh "%system.teamcity.build.id%"

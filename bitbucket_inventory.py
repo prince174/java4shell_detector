@@ -103,6 +103,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     stages = [number for number, line in enumerate(lines, 1) if FROM.match(line)] if dockerfile else []
     copied_jdks = {copy[1].lower() for line in lines[stages[-1]:] if (copy := COPY_JDK.match(line))} if stages else set()
     variables = {}
+    xml_declarations = {}
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
             for key, value in re.findall(r"<([\w.-]+)>\s*([^<]+?)\s*</\1>", block):
@@ -110,6 +111,12 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                     variables[key] = "${" + key + "}"
                 else:
                     variables[key] = value
+        line_number = 1
+        previous_offset = 0
+        for match in XML.finditer(text):
+            line_number += text.count("\n", previous_offset, match.start())
+            previous_offset = match.start()
+            xml_declarations.setdefault(line_number, []).append((match["key"], match["value"]))
 
     def finding(line, role, evidence, value, image=False):
         resolved = substitute(value, variables)
@@ -152,7 +159,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                     role = "bundled_jdk"
                 yield finding(number, role, "FROM" if stage else "image", value, image=True)
             continue
-        matches = [(m["key"], m["value"]) for m in XML.finditer(line)] if name == "pom.xml" else []
+        matches = xml_declarations.pop(number, [])
         setting = SETTING.match(line)
         if setting:
             matches.append((setting["key"], setting["value"]))

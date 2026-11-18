@@ -111,6 +111,24 @@ FROM eclipse-temurin:17-jre
              (2, "17.0.6+10", "candidate", "build_jdk_declaration")],
         )
 
+    def test_maven_multiline_declarations_link_to_opening_tag(self):
+        pom = """<project>
+  <properties>
+    <jdk.version>
+      17.0.6
+    </jdk.version>
+  </properties>
+  <configuration><release>
+    ${jdk.version}
+  </release></configuration>
+</project>"""
+        rows = list(bitbucket.declarations("pom.xml", pom))
+        self.assertEqual(
+            [(row["line"], row["version"], row["status"], row["role"]) for row in rows],
+            [(3, "17.0.6", "candidate", "build_jdk_declaration"),
+             (7, "17.0.6", "candidate", "bytecode_target")],
+        )
+
     def test_maven_comments_do_not_override_active_properties_or_shift_evidence(self):
         pom = """<project>
   <properties>

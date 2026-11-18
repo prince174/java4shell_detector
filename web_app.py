@@ -77,7 +77,7 @@ def run_job(source, job, flags):
                     event = json.loads(line)
                 except ValueError:
                     event = {}
-                if event.get("event") in {"http", "registry"}:
+                if event.get("event") in {"http", "registry", "git"}:
                     event["operation"] = redact_diagnostic(event["operation"].split("?", 1)[0])
                     with LOCK:
                         update_stats(job[event["event"]], event)
@@ -322,7 +322,7 @@ class Handler(BaseHTTPRequestHandler):
             if not active:
                 provider = next((flag.partition("=")[2] for flag in flags if flag.startswith("--provider=")), source)
                 job = {"id": uuid4().hex, "state": "running", "started": time.monotonic(),
-                       "http": stats(), "registry": stats(), "messages": [], "reports": [],
+                       "http": stats(), "registry": stats(), "git": stats(), "messages": [], "reports": [],
                        "provider": provider, "diagnostics": [], "debug": LOGGER.isEnabledFor(logging.DEBUG)}
                 JOBS[source] = job
         if active:

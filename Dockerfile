@@ -13,6 +13,8 @@ RUN --mount=type=bind,source=certs,target=/run/corporate-ca \
         if [ -f "$cert" ]; then cp "$cert" /usr/local/share/ca-certificates/ || exit 1; fi; \
     done && update-ca-certificates
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 INVENTORY_REPORT_DIR=/reports
+RUN apt-get update && apt-get install -y --no-install-recommends git \
+    && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=crane /out/crane /usr/local/bin/crane
 COPY inventory_common.py bitbucket_inventory.py nexus_inventory.py web_app.py index.html ./

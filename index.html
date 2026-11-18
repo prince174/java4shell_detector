@@ -157,7 +157,8 @@ function resultItem(item) {
       const filePanel = element('details', '');
       const title = element('summary', '');
       title.append(resultLink(file, (candidate || findings[0]).url));
-      if (candidate) title.append(element('span', ' · кандидат'));
+      if (candidate) title.append(element('span', ' · кандидат' +
+        (candidate.java_major ? ' · Java ' + candidate.java_major : '')));
       filePanel.append(title, findingList(findings));
       entry.append(filePanel);
       list.append(entry);
@@ -254,6 +255,7 @@ function render(section, job) {
   metrics.replaceChildren();
   showStats(metrics, section.id === 'nexus' ? 'Nexus API · GET / POST' : 'REST GET', job.http);
   if (section.id === 'nexus') showStats(metrics, 'Операции Docker Registry', job.registry);
+  if (section.id === 'bitbucket' && job.git) showStats(metrics, 'Git clone', job.git);
   const report = job.summary;
   if (report) metrics.append(element('p', 'Объектов: ' + report.assets + ' · Кандидатов: ' + report.candidates + ' · Ошибок охвата: ' + report.errors));
   const output = section.querySelector('output');

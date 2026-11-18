@@ -6,6 +6,7 @@ import csv
 import io
 import json
 import os
+import subprocess
 from pathlib import Path
 import tarfile
 import tempfile
@@ -42,7 +43,8 @@ def tar_fixture(path, files):
 
 def bb_args(**overrides):
     return argparse.Namespace(**({"project": [], "branch": [], "max_file_bytes": 1024, "java_majors": (17,),
-                                  "profile": "inventory",
+                                  "profile": "inventory", "provider": "datacenter", "git_timeout": 10,
+                                  "git_auth": None, "progress": True,
                                   "workspace": "test"} | overrides))
 
 
@@ -112,65 +114,64 @@ FROM eclipse-temurin:17-jre
 
 
 class BitbucketTests(unittest.TestCase):
-    def test_first_candidate_stops_file_and_prevents_second_branch_fetch(self):
-        filename = "Dockerfile.cdxgen-worker"
-        data = b"""FROM registry.example/eclipse-temurin:8-jdk-noble AS jdk8
-FROM registry.example/eclipse-temurin:21-jdk-noble AS jdk21
-FROM registry.example/eclipse-temurin:25-jdk-noble AS jdk25
-FROM registry.example/maven:3.9-eclipse-temurin-17
-COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
-"""
-        class FixtureApi:
-            def __init__(self):
-                self.reads = []
+    def test_one_clone_stops_after_first_candidate_repository_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory, "repo")
+            repo.mkdir()
 
-            def json(self, path, params):
-                return {"values": [filename], "isLastPage": True}
+            def git(*command):
+                return subprocess.check_output(
+                    ["git", "-C", str(repo), "-c", "user.name=Fixture", "-c",
+                     "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *command],
+                    stderr=subprocess.PIPE,
+                ).decode().strip()
 
-            def read(self, path, params, *_args, **_kwargs):
-                self.reads.append(params["at"])
-                return data
+            git("init", "-b", "main")
+            (repo / "Dockerfile").write_text(
+                "FROM registry.example/eclipse-temurin:8-jdk-noble AS jdk8\n"
+                "FROM registry.example/eclipse-temurin:21-jdk-noble AS jdk21\n"
+                "FROM registry.example/maven:3.9-eclipse-temurin-17\n"
+                "COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/\n",
+                encoding="utf-8",
+            )
+            extra = repo / "nested"
+            extra.mkdir()
+            (extra / ".java-version").write_text("25.0.1", encoding="utf-8")
+            git("add", ".")
+            git("commit", "-m", "Main")
+            commit = git("rev-parse", "HEAD")
+            git("checkout", "-b", "release")
+            (repo / "Dockerfile").write_text("FROM eclipse-temurin:27", encoding="utf-8")
+            git("commit", "-am", "Release")
+            git("checkout", "main")
+            args = bb_args(java_majors=JAVA4SHELL_MAJORS, profile="java4shell", branch=["*"])
+            asset, findings, errors = {}, [], []
+            with contextlib.redirect_stdout(io.StringIO()) as log:
+                bitbucket.scan_repository(args, repo.as_uri(), None, asset, findings, errors)
 
-        api = FixtureApi()
-        candidates, findings, errors = set(), [], []
-        args = bb_args(java_majors=JAVA4SHELL_MAJORS, profile="java4shell")
-        for commit in ("main-head", "release-head"):
-            bitbucket.scan_commit(api, args, {"commit": commit}, findings, errors, candidates,
-                                  cloud=False, base="/repo")
-        self.assertEqual(api.reads, ["main-head"])
         self.assertFalse(errors)
+        self.assertEqual((asset["branch"], asset["commit"], asset["candidate"]), ("main", commit, True))
+        self.assertEqual(len(log.getvalue().splitlines()), 1)
         self.assertEqual([(row["file"], row["version"], row["role"], row["status"]) for row in findings],
-                         [(filename, "8", "intermediate_base", "outside_scope"),
-                          (filename, "21", "bundled_jdk", "candidate")])
+                         [("Dockerfile", "8", "intermediate_base", "outside_scope"),
+                          ("Dockerfile", "21", "bundled_jdk", "candidate")])
+        self.assertEqual(findings[-1]["java_major"], 21)
 
-    def test_datacenter_pagination_commit_and_delay(self):
+    def test_datacenter_catalog_pagination_and_delay(self):
         events = []
-        commit = "a" * 40
 
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
                 url = urlsplit(self.path)
                 query = parse_qs(url.query)
                 events.append((url.path, query, time.monotonic()))
-                if url.path.endswith("/raw/pom.xml"):
-                    body = b"<project><properties><java.version>17.0.6</java.version></properties></project>"
-                elif url.path.endswith("/raw/Dockerfile"):
-                    self.send_error(403)
-                    return
+                if query.get("start") == ["5"]:
+                    body = {"values": [{"slug": "fixture", "project": {"key": "TEST"}}], "isLastPage": True}
                 else:
-                    page = {"isLastPage": True}
-                    if url.path.endswith("/branches"):
-                        page["values"] = [{"default": True, "latestCommit": commit, "displayId": "main"}]
-                    elif url.path.endswith("/files"):
-                        page["values"] = ["pom.xml", "Dockerfile"]
-                    elif query.get("start") == ["5"]:
-                        page["values"] = [{"slug": "fixture", "project": {"key": "TEST"}}]
-                    else:
-                        page.update(values=[], isLastPage=False, nextPageStart=5)
-                    body = json.dumps(page).encode()
+                    body = {"values": [], "isLastPage": False, "nextPageStart": 5}
                 self.send_response(200)
                 self.end_headers()
-                self.wfile.write(body)
+                self.wfile.write(json.dumps(body).encode())
 
             def log_message(self, *_):
                 pass
@@ -179,53 +180,35 @@ COPY --from=jdk21 /opt/java/openjdk/ /opt/toolchains/21/
             thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
             thread.start()
             try:
-                api = Api(f"http://127.0.0.1:{server.server_port}", None, 5, delay=0.1, progress=True)
-                with contextlib.redirect_stdout(io.StringIO()) as stdout:
-                    assets, findings, errors = bitbucket.inventory(api, bb_args())
+                api = Api(f"http://127.0.0.1:{server.server_port}/bitbucket", None, 5, delay=0.1, progress=True)
+                with contextlib.redirect_stdout(io.StringIO()), patch.object(bitbucket, "scan_repository") as scan:
+                    assets, _, errors = bitbucket.inventory(api, bb_args())
             finally:
                 server.shutdown()
                 thread.join()
-        self.assertEqual((len(assets), len(findings), len(errors)), (1, 1, 1))
-        self.assertEqual((assets[0]["commit"], assets[0]["status"]), (commit, "partial"))
-        self.assertEqual(findings[0]["status"], "candidate")
-        self.assertEqual(len(events), 6)
-        self.assertEqual([event[1]["at"] for event in events[3:]], [[commit]] * 3)
-        intervals = [right[2] - left[2] for left, right in zip(events, events[1:])]
-        self.assertTrue(all(interval >= 0.095 for interval in intervals), intervals)
-        progress = [json.loads(line) for line in stdout.getvalue().splitlines()]
-        self.assertEqual([row["http_status"] for row in progress], [200] * 5 + [403])
+        self.assertEqual((len(assets), len(errors)), (1, 0))
+        self.assertEqual([event[0] for event in events], ["/bitbucket/rest/api/latest/repos"] * 2)
+        self.assertGreaterEqual(events[1][2] - events[0][2], 0.095)
+        scan.assert_called_once()
+        self.assertEqual(scan.call_args.args[1:3], (api.base + "/scm/test/fixture.git", None))
 
-    def test_cloud_branch_and_nested_file(self):
-        commit = "b" * 40
-        root = "/repositories/test/repo"
-        tree = root + "/src/" + commit + "/"
-        endpoints = {
-            "/repositories/test?pagelen=100": {
-                "values": [{"slug": "repo", "project": {"key": "TEST"}, "mainbranch": {"name": "main"}}]
-            },
-            root + "/refs/branches/main": {"name": "main", "target": {"hash": commit}},
-            tree + "?pagelen=100": {"values": [{"type": "commit_directory", "path": "nested"}]},
-            tree + "nested/?pagelen=100": {"values": [{"type": "commit_file", "path": "nested/.java-version"}]},
-        }
+    def test_cloud_catalog_is_the_only_api_call(self):
+        calls = []
 
         class Cloud:
-            base = "https://example.invalid/2.0"
+            base = "https://api.bitbucket.org/2.0"
 
             def json(self, path):
-                return endpoints[path]
+                calls.append(path)
+                return {"values": [{"slug": "repo", "project": {"key": "TEST"}, "mainbranch": {"name": "main"}}]}
 
-            def read(self, path, *_args, **_kwargs):
-                if path != tree + "nested/.java-version":
-                    raise AssertionError(path)
-                return b"17.0.6"
-
-        assets, findings, errors = bitbucket.cloud_inventory(Cloud(), bb_args(project=["TEST"]))
+        with patch.object(bitbucket, "scan_repository") as scan:
+            assets, _, errors = bitbucket.inventory(Cloud(), bb_args(provider="cloud", project=["TEST"]))
         self.assertFalse(errors)
+        self.assertEqual(calls, ["/repositories/test?pagelen=100"])
         self.assertEqual(len(assets), 1)
-        self.assertEqual((findings[0]["commit"], findings[0]["status"]), (commit, "candidate"))
-        endpoints["/repositories/test?pagelen=100"]["next"] = "https://other.invalid/2.0/repos"
-        _, _, errors = bitbucket.cloud_inventory(Cloud(), bb_args())
-        self.assertIn("attempted to leave", errors[0]["error"])
+        scan.assert_called_once()
+        self.assertEqual(scan.call_args.args[1:3], ("https://bitbucket.org/test/repo.git", "main"))
 
 
 class NexusTests(unittest.TestCase):
@@ -284,7 +267,8 @@ class NexusTests(unittest.TestCase):
             list(nexus.repository_assets(api, "images", "rest"))
         api.failure = RuntimeError("DNS lookup failed")
         with self.assertRaisesRegex(RuntimeError, "DNS lookup failed"):
-            list(nexus.repository_assets(api, "images", "auto"))
+            nexus.repository_catalog(api, "auto")
+        self.assertEqual(len(list(nexus.repository_assets(api, "images", "auto"))), 2)
 
     def test_path_based_routing_and_explicit_override(self):
         digest = "sha256:" + "a" * 64
@@ -313,7 +297,7 @@ class NexusTests(unittest.TestCase):
 
         registry = FixtureRegistry()
         with tempfile.TemporaryDirectory() as tmp:
-            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="auto")
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="rest")
             assets, _, errors = nexus.inventory(
                 FixtureApi(), registry, args, {"port-hosted": "https://nexus.example.invalid:18443"}, tmp
             )
@@ -346,7 +330,7 @@ class NexusTests(unittest.TestCase):
                 return [{"name": "maven-hosted", "format": "maven2", "type": "hosted"}]
 
         with tempfile.TemporaryDirectory() as tmp:
-            args = argparse.Namespace(repository=["maven-hosted", "unlisted"], include_proxy=False, discovery="auto")
+            args = argparse.Namespace(repository=["maven-hosted", "unlisted"], include_proxy=False, discovery="rest")
             assets, findings, errors = nexus.inventory(NexusApi(), None, args, {}, tmp)
         self.assertEqual((assets, findings), ([], []))
         self.assertIn("format is 'maven2'", errors[0]["error"])
@@ -410,7 +394,7 @@ class NexusTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             assets, findings, errors = nexus.inventory(
                 NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,),
-                                                         discovery="auto"),
+                                                         discovery="rest"),
                 {"hosted": "registry.example:5000"}, directory)
         self.assertFalse(errors)
         self.assertEqual(registry.exported, [tagged_digest, untagged_digest])
@@ -474,7 +458,7 @@ class NexusTests(unittest.TestCase):
                     return b'{"config":{"mediaType":"application/vnd.oci.image.config.v1+json"},"layers":[]}'
 
         with tempfile.TemporaryDirectory() as directory:
-            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="auto")
+            args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="rest")
             assets, findings, errors = nexus.inventory(
                 FixtureApi(), FixtureRegistry(), args, {"hosted": "registry.invalid"}, directory
             )

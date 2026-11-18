@@ -69,6 +69,8 @@ def verify(base, source, job, java_majors):
         assert job["registry"]["count"] and not job["registry"]["errors"]
     else:
         assert all(row["status"] == "scanned" and row["commit"] for row in report["assets"])
+        assert job["git"]["count"] == EXPECTED["assets"] and not job["git"]["errors"]
+        assert all(row["java_major"] == row["version"].split(".")[0] for row in candidates)
     print(f"{source} {run_id}: {expected}, {job['elapsed']:.2f} s", flush=True)
 
 

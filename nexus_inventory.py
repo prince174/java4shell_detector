@@ -86,13 +86,9 @@ def repository_catalog(api, discovery):
 
 
 def repository_assets(api, repository, discovery):
-    if discovery != "extdirect":
-        try:
-            yield from docker_assets(api, repository)
-            return
-        except (ApiHttpError, ApiTimeoutError) as exc:
-            if discovery != "auto" or (isinstance(exc, ApiHttpError) and exc.status not in EXTDIRECT_FALLBACK_CODES):
-                raise
+    if discovery == "rest":
+        yield from docker_assets(api, repository)
+        return
     pending = ["v2"]
     seen = set()
     while pending:

@@ -5,12 +5,16 @@ import fnmatch
 import math
 import os
 import re
-from pathlib import PurePosixPath
+import shutil
+import subprocess
+import tempfile
+import time
+from pathlib import Path, PurePosixPath
 from urllib.parse import quote
 
 from inventory_common import (
     Api, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, LEGACY_VERSION,
-    classify, java4shell_result, load_env, parse_java_majors, write_reports,
+    classify, java4shell_result, java_major, load_env, parse_java_majors, report_progress, write_reports,
 )
 
 API_ROOT = "/rest/api/latest"
@@ -179,52 +183,6 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             yield finding(number, role, key, value)
 
 
-def inventory(api, args):
-    assets, findings, errors = [], [], []
-    try:
-        for repo in paged(api, API_ROOT + "/repos"):
-            project, slug = repo["project"]["key"], repo["slug"]
-            if args.project and project not in args.project:
-                continue
-            repository = f"{project}/{slug}"
-            base = f"{API_ROOT}/projects/{quote(project, safe='')}/repos/{quote(slug, safe='')}"
-            try:
-                available = list(paged(api, base + "/branches"))
-                default_id = None
-                if available and not any(branch.get("default") or branch.get("isDefault") for branch in available):
-                    default_id = api.json(base + "/default-branch")["id"]
-                branches = [
-                    branch for branch in available
-                    if branch.get("default") or branch.get("isDefault")
-                    or (default_id and branch["id"] == default_id) or any(
-                        fnmatch.fnmatchcase(branch["displayId"], pattern) for pattern in args.branch
-                    )
-                ]
-                if not branches:
-                    assets.append({"repository": repository,
-                                   "status": "no_selected_branches" if available else "empty_repository"})
-                commits = {}
-                candidate_files = set()
-                branches.sort(key=lambda branch: not (
-                    branch.get("default") or branch.get("isDefault")
-                    or (default_id and branch.get("id") == default_id)
-                ))
-                for branch in branches:
-                    commit = branch["latestCommit"]
-                    refs = commits.setdefault(commit, [])
-                    refs.append(branch["displayId"])
-                for commit, refs in commits.items():
-                    asset = {"source": "bitbucket", "repository": repository,
-                             "project": project, "branch": ", ".join(refs), "commit": commit}
-                    assets.append(asset)
-                    scan_commit(api, args, asset, findings, errors, candidate_files, cloud=False, base=base)
-            except ERRORS as exc:
-                errors.append({"repository": repository, "error": str(exc)})
-    except ERRORS as exc:
-        errors.append({"stage": "list_repositories", "error": str(exc)})
-    return assets, findings, errors
-
-
 def cloud_pages(api, path):
     seen = set()
     while path and path not in seen:
@@ -239,87 +197,143 @@ def cloud_pages(api, path):
         raise ValueError("Repeated Bitbucket Cloud page")
 
 
-def cloud_files(api, root):
-    pending = [""]
-    while pending:
-        folder = pending.pop()
-        for entry in cloud_pages(api, root + quote(folder) + "?pagelen=100"):
-            path = entry["path"]
-            if entry["type"] == "commit_directory":
-                pending.append(path + "/")
-            elif entry["type"] == "commit_file":
-                yield path
-
-
-def cloud_inventory(api, args):
-    assets, findings, errors = [], [], []
-    repos = "/repositories/" + quote(args.workspace, safe="")
+def git_run(args, directory, *command, clone=False):
+    env = {key: value for key, value in os.environ.items()
+           if not key.startswith(("GIT_", "NEXUS_", "BITBUCKET_"))}
+    env.update(GIT_TERMINAL_PROMPT="0", GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+    if clone and args.git_auth:
+        # Pass credentials in the command environment, never in the URL or argv.
+        env.update(GIT_CONFIG_COUNT="1", GIT_CONFIG_KEY_0="http.extraHeader",
+                   GIT_CONFIG_VALUE_0="Authorization: " + args.git_auth)
+    started = time.monotonic()
+    ok = False
     try:
-        for repo in cloud_pages(api, repos + "?pagelen=100"):
+        result = subprocess.run(
+            ["git", "-c", "http.followRedirects=false", "-C", str(directory), *command],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            timeout=args.git_timeout, check=False,
+        )
+        ok = result.returncode == 0
+        if not ok:
+            detail = result.stderr.decode(errors="replace").strip()
+            for secret in (args.git_auth, os.getenv("BITBUCKET_TOKEN"), os.getenv("BITBUCKET_CLOUD_TOKEN")):
+                if secret:
+                    detail = detail.replace(secret, "[redacted]")
+            raise RuntimeError(f"git {command[0]} exited {result.returncode}: {detail[:500]}")
+        return result.stdout
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"git {command[0]} timed out after {args.git_timeout:g} s") from None
+    finally:
+        if clone:
+            report_progress(args.progress, "git", time.monotonic() - started, ok, command[-2])
+
+
+def git_refs(args, directory, default):
+    branch = git_run(args, directory, "symbolic-ref", "--short", "HEAD").decode().strip()
+    output = git_run(args, directory, "for-each-ref", "--format=%(refname:strip=3)%00%(objectname)",
+                     "refs/remotes/origin/")
+    branches = dict(line.split("\0", 1) for line in output.decode().splitlines())
+    default = default or branch
+    selected = [name for name in branches if name != "HEAD" and (
+        name == default or any(fnmatch.fnmatchcase(name, pattern) for pattern in args.branch)
+    )]
+    return [(name, branches[name]) for name in sorted(selected, key=lambda name: (name != default, name))]
+
+
+def scan_tree(args, directory, asset, findings, errors):
+    entries = git_run(args, directory, "ls-tree", "-r", "-l", "-z", asset["commit"]).split(b"\0")
+    for entry in filter(None, entries):
+        metadata, _, name = entry.partition(b"\t")
+        mode, kind, object_id, size = metadata.split()
+        if kind != b"blob" or mode not in {b"100644", b"100755"}:
+            continue
+        file = name.decode("utf-8", errors="replace")
+        if not config_file(file):
+            continue
+        try:
+            if int(size) > args.max_file_bytes:
+                raise ValueError(f"File exceeds {args.max_file_bytes} bytes")
+            text = git_run(args, directory, "cat-file", "blob", object_id.decode()).decode("utf-8-sig")
+            for row in declarations(file, text, args.java_majors):
+                if args.profile == "java4shell":
+                    row["status"], row["policy_reason"] = java4shell_result(row)
+                if row["status"] == "candidate":
+                    row["java_major"] = java_major(row["version"])
+                findings.append({**asset, **row, "file": file})
+                if row["status"] == "candidate":
+                    return True
+        except ERRORS as exc:
+            errors.append({**asset, "file": file, "error": str(exc)})
+    return False
+
+
+def scan_repository(args, url, default, asset, findings, errors):
+    errors_before, findings_before = len(errors), len(findings)
+    candidate = False
+    try:
+        with tempfile.TemporaryDirectory(prefix="java4shell-git-") as temporary:
+            root = Path(temporary)
+            command = ["clone", "--quiet", "--depth", "1", "--no-checkout", "--no-tags",
+                       "--no-single-branch" if args.branch else "--single-branch"]
+            if default:
+                command.extend(["--branch", default])
+            git_run(args, root, *command, "--", url, "repository", clone=True)
+            directory = root / "repository"
+            refs = git_refs(args, directory, default)
+            checked = set()
+            for branch, commit in refs:
+                if commit in checked:
+                    continue
+                checked.add(commit)
+                asset.update(branch=branch, commit=commit)
+                candidate = scan_tree(args, directory, asset, findings, errors)
+                if candidate:
+                    break
+            if not refs:
+                asset["status"] = "empty_repository"
+    except ERRORS as exc:
+        errors.append({**asset, "stage": "git", "error": str(exc)})
+    asset.update(
+        status="partial" if len(errors) > errors_before else asset.get("status", "scanned"),
+        findings=len(findings) - findings_before, candidate=candidate,
+    )
+
+
+def inventory(api, args):
+    assets, findings, errors = [], [], []
+    seen_repositories = set()
+    cloud = args.provider == "cloud"
+    try:
+        if cloud:
+            route = "/repositories/" + quote(args.workspace, safe="")
+            catalog = cloud_pages(api, route + "?pagelen=100")
+        else:
+            catalog = paged(api, API_ROOT + "/repos")
+        for repo in catalog:
             project = (repo.get("project") or {}).get("key")
             slug = repo["slug"]
-            repository = f"{args.workspace}/{slug}"
-            base = repos + "/" + quote(slug, safe="")
-            try:
-                if not project:
-                    project = (api.json(base).get("project") or {}).get("key")
-                if args.project and project not in args.project:
-                    continue
-                default = repo.get("mainbranch")
-                if not default:
-                    assets.append({"repository": repository, "project": project,
-                                   "status": "empty_repository"})
-                    continue
-                default_name = default["name"]
-                if args.branch:
-                    branches = [branch for branch in cloud_pages(api, base + "/refs/branches?pagelen=100")
-                                if branch["name"] == default_name or any(
-                                    fnmatch.fnmatchcase(branch["name"], pattern) for pattern in args.branch)]
-                else:
-                    branches = [api.json(base + "/refs/branches/" + quote(default_name, safe=""))]
-                commits = {}
-                candidate_files = set()
-                branches.sort(key=lambda branch: branch["name"] != default_name)
-                for branch in branches:
-                    commits.setdefault(branch["target"]["hash"], []).append(branch["name"])
-                for commit, refs in commits.items():
-                    asset = {"source": "bitbucket_cloud", "repository": repository, "project": project,
-                             "branch": ", ".join(refs), "commit": commit}
-                    assets.append(asset)
-                    scan_commit(api, args, asset, findings, errors, candidate_files, cloud=True, base=base)
-            except ERRORS as exc:
-                errors.append({"repository": repository, "error": str(exc)})
+            if args.project and project not in args.project:
+                continue
+            owner = args.workspace if cloud else project
+            repository = f"{owner}/{slug}"
+            if repository in seen_repositories:
+                continue
+            seen_repositories.add(repository)
+            asset = {"source": "bitbucket_cloud" if cloud else "bitbucket",
+                     "repository": repository, "project": project}
+            assets.append(asset)
+            safe_owner = quote(owner if cloud else owner.lower(), safe="")
+            safe_slug = quote(slug, safe="")
+            if cloud:
+                url = f"https://bitbucket.org/{safe_owner}/{safe_slug}.git"
+                default = (repo.get("mainbranch") or {}).get("name")
+            else:
+                url = f"{api.base}/scm/{safe_owner}/{safe_slug}.git"
+                default = None
+            scan_repository(args, url, default, asset, findings, errors)
     except ERRORS as exc:
         errors.append({"stage": "list_repositories", "error": str(exc)})
     return assets, findings, errors
-
-
-def scan_commit(api, args, asset, findings, errors, candidate_files, *, cloud, base):
-    commit = asset["commit"]
-    root = base + "/src/" + quote(commit, safe="") + "/" if cloud else base + "/raw/"
-    params = None if cloud else {"at": commit}
-    paths = cloud_files(api, root) if cloud else paged(api, base + "/files", at=commit)
-    errors_before = len(errors)
-    count_before = len(findings)
-    try:
-        for path in paths:
-            if path in candidate_files or not config_file(path):
-                continue
-            try:
-                data = api.read(root + quote(path), params, args.max_file_bytes, accept="*/*")
-                for row in declarations(path, data.decode("utf-8-sig"), args.java_majors):
-                    if args.profile == "java4shell":
-                        row["status"], row["policy_reason"] = java4shell_result(row)
-                    findings.append({**asset, **row, "file": path})
-                    if row["status"] == "candidate":
-                        candidate_files.add(path)
-                        break
-            except ERRORS as exc:
-                errors.append({**asset, "file": path, "error": str(exc)})
-    except ERRORS as exc:
-        errors.append({**asset, "error": str(exc)})
-    asset.update(status="partial" if len(errors) > errors_before else "scanned",
-                 findings=len(findings) - count_before)
 
 
 def main():
@@ -335,17 +349,20 @@ def main():
     parser.add_argument("--branch", action="append", default=[],
                         help="Additional branch glob; repeat or use '*' for all branches")
     parser.add_argument("--timeout", type=float, default=30)
+    parser.add_argument("--git-timeout", type=float, default=300)
     parser.add_argument("--delay", type=float, default=0.1, help="Seconds between REST GET requests")
     parser.add_argument("--progress", action="store_true")
     parser.add_argument("--max-file-bytes", type=int, default=2 * 1024 * 1024)
     args = parser.parse_args()
     if args.profile == "java4shell":
         args.java_majors = JAVA4SHELL_MAJORS
-    if (not math.isfinite(args.timeout) or args.timeout <= 0 or args.max_file_bytes <= 0
+    if (not all(math.isfinite(value) and value > 0 for value in (args.timeout, args.git_timeout)) or args.max_file_bytes <= 0
             or not math.isfinite(args.delay) or args.delay < 0):
         parser.error("Use a positive timeout and file size, and a non-negative delay")
     try:
         load_env()
+        if not shutil.which("git"):
+            raise ValueError("git executable not found")
         args.provider = args.provider or os.getenv("BITBUCKET_PROVIDER", "datacenter")
         if args.provider not in {"cloud", "datacenter"}:
             raise ValueError("BITBUCKET_PROVIDER must be cloud or datacenter")
@@ -364,17 +381,20 @@ def main():
             args.url = args.url or os.getenv("BITBUCKET_URL", "")
             token = os.getenv("BITBUCKET_TOKEN")
             authorization = f"Bearer {token}" if token else None
+        args.git_auth = authorization
+        if args.provider == "cloud" and token:
+            git_user = "x-bitbucket-api-token-auth" if email else "x-token-auth"
+            args.git_auth = "Basic " + base64.b64encode(f"{git_user}:{token}".encode()).decode()
         api = Api(args.url, authorization, args.timeout, args.delay, args.progress,
                   allow_http_auth=os.getenv("BITBUCKET_ALLOW_HTTP_AUTH") == "1" and args.provider == "datacenter")
     except ValueError as exc:
         parser.error(str(exc))
-    inventory_function = cloud_inventory if args.provider == "cloud" else inventory
     return write_reports(args.output, {"source": "bitbucket", "provider": args.provider,
                                        "workspace": args.workspace if args.provider == "cloud" else None, "url": args.url,
                                        "projects": args.project, "additional_branches": args.branch,
                                        "request_delay_seconds": args.delay, "java_majors": args.java_majors,
                                        "profile": args.profile},
-                         *inventory_function(api, args))
+                         *inventory(api, args))
 
 
 if __name__ == "__main__":

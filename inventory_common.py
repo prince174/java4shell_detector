@@ -59,6 +59,14 @@ def classify(value, java_majors=DEFAULT_JAVA_MAJORS):
     return version, status
 
 
+def java_major(version):
+    legacy = LEGACY_VERSION.fullmatch(version)
+    if legacy:
+        return int(legacy["major"] or legacy["short_major"])
+    parsed = VERSION.match(version)
+    return int(parsed["major"]) if parsed else None
+
+
 def java4shell_result(row):
     version = row.get("version", "")
     vendor = row.get("vendor", "").lower()
@@ -190,7 +198,7 @@ def write_reports(output, scope, assets, findings, errors):
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
     )
     fields = ("source", "project", "repository", "branch", "commit", "image", "tag", "reference",
-              "index_digest", "digest", "platform", "role", "vendor", "version",
+              "index_digest", "digest", "platform", "role", "vendor", "java_major", "version",
               "declared_version", "product_version", "status", "policy_reason", "file", "evidence", "line")
     with (output / "candidates.csv").open("w", encoding="utf-8-sig", newline="") as stream:
         writer = csv.DictWriter(stream, fieldnames=fields, extrasaction="ignore")

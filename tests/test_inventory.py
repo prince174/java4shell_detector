@@ -188,6 +188,15 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
              (9, "17.0.6", "candidate", "bytecode_target")],
         )
 
+    def test_yaml_image_accepts_quoted_keys(self):
+        for key in ("image", "'image'", '"image"'):
+            with self.subTest(key=key):
+                row, = bitbucket.declarations(
+                    "compose.yaml", f"services:\n  app:\n    {key}: 'eclipse-temurin:17.0.6'\n"
+                )
+                self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                                 (3, "17.0.6", "candidate", "image_reference"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

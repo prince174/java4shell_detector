@@ -39,7 +39,7 @@ XML = re.compile(
 )
 ARG = re.compile(r"^\s*ARG\s+(\w+)(?:\s*=\s*(\S+))?", re.I)
 FROM = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", re.I)
-IMAGE = re.compile(r"^\s*(?:-\s*)?image\s*:\s*['\"]?([^\s'\"]+)", re.I)
+IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"]+)""", re.I)
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\(\s*([^(),]+)\s*\)")
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")

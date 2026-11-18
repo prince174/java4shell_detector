@@ -93,6 +93,9 @@ def version_value(value, java_majors):
 
 def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     name = PurePosixPath(path).name.lower()
+    if name == "pom.xml":
+        text = text.replace("\r\n", "\n").replace("\r", "\n")
+        text = re.sub(r"<!--.*?(?:-->|\Z)", lambda comment: "\n" * comment[0].count("\n"), text, flags=re.S)
     lines = text.splitlines()
     dockerfile = name.startswith(("dockerfile", "containerfile")) or name.endswith(
         (".dockerfile", ".containerfile")
@@ -131,18 +134,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 "version": version, "declared_version": safe_version(version), "status": status,
                 "vendor": vendor, "distribution": distribution}
 
-    in_xml_comment = False
     for number, line in enumerate(lines, 1):
-        if name == "pom.xml":
-            if in_xml_comment:
-                if "-->" not in line:
-                    continue
-                line = line.split("-->", 1)[1]
-                in_xml_comment = False
-            line = re.sub(r"<!--.*?-->", "", line)
-            if "<!--" in line:
-                line = line.split("<!--", 1)[0]
-                in_xml_comment = True
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", "//", "*")):
             continue

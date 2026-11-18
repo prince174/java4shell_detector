@@ -102,6 +102,24 @@ FROM eclipse-temurin:17-jre
                          [("build_jdk_declaration", "17.0.10", 1),
                           ("bytecode_target", "17.0.10", 2)])
 
+    def test_maven_comments_do_not_override_active_properties_or_shift_evidence(self):
+        pom = """<project>
+  <properties>
+    <!-- Old setting:
+         <java.version>17.0.5</java.version>
+    -->
+    <java.version>17.0.6</java.version>
+    <!-- <jdk.version>21</jdk.version> -->
+  </properties>
+  <release>${java.version}</release>
+</project>"""
+        rows = list(bitbucket.declarations("pom.xml", pom))
+        self.assertEqual(
+            [(row["line"], row["version"], row["status"], row["role"]) for row in rows],
+            [(6, "17.0.6", "candidate", "build_jdk_declaration"),
+             (9, "17.0.6", "candidate", "bytecode_target")],
+        )
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

@@ -114,17 +114,21 @@ FROM eclipse-temurin:17-jre
 
 
 class BitbucketTests(unittest.TestCase):
+    @staticmethod
+    def git(repo, *command):
+        return subprocess.check_output(
+            ["git", "-C", str(repo), "-c", "user.name=Fixture", "-c",
+             "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *command],
+            stderr=subprocess.PIPE,
+        ).decode().strip()
+
     def test_one_clone_stops_after_first_candidate_repository_file(self):
         with tempfile.TemporaryDirectory() as directory:
             repo = Path(directory, "repo")
             repo.mkdir()
 
             def git(*command):
-                return subprocess.check_output(
-                    ["git", "-C", str(repo), "-c", "user.name=Fixture", "-c",
-                     "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", *command],
-                    stderr=subprocess.PIPE,
-                ).decode().strip()
+                return self.git(repo, *command)
 
             git("init", "-b", "main")
             (repo / "Dockerfile").write_text(
@@ -156,6 +160,32 @@ class BitbucketTests(unittest.TestCase):
                          [("Dockerfile", "8", "intermediate_base", "outside_scope"),
                           ("Dockerfile", "21", "bundled_jdk", "candidate")])
         self.assertEqual(findings[-1]["java_major"], 21)
+
+    def test_unchanged_file_across_branches_is_scanned_once(self):
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            self.git(repo, "init", "-b", "main")
+            (repo / ".java-version").write_text("17.0.5", encoding="utf-8")
+            (repo / "Dockerfile").write_text("FROM eclipse-temurin:17.0.5\n", encoding="utf-8")
+            self.git(repo, "add", ".")
+            self.git(repo, "commit", "-m", "Main")
+            self.git(repo, "checkout", "-b", "release")
+            (repo / "Dockerfile").write_text("FROM eclipse-temurin:17.0.6\n", encoding="utf-8")
+            self.git(repo, "commit", "-am", "Release")
+            self.git(repo, "checkout", "main")
+            args = bb_args(branch=["release"], progress=False)
+            asset, findings, errors = {}, [], []
+            with patch.object(bitbucket, "declarations", wraps=bitbucket.declarations) as parse:
+                bitbucket.scan_repository(args, repo.as_uri(), None, asset, findings, errors)
+
+        self.assertFalse(errors)
+        self.assertEqual([call.args[0] for call in parse.call_args_list],
+                         [".java-version", "Dockerfile", "Dockerfile"])
+        self.assertEqual([(row["branch"], row["file"], row["version"]) for row in findings],
+                         [("main", ".java-version", "17.0.5"),
+                          ("main", "Dockerfile", "17.0.5"),
+                          ("release", "Dockerfile", "17.0.6")])
+        self.assertTrue(asset["candidate"])
 
     def test_datacenter_catalog_pagination_and_delay(self):
         events = []

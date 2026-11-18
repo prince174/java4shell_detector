@@ -240,7 +240,7 @@ def git_refs(args, directory, default):
     return [(name, branches[name]) for name in sorted(selected, key=lambda name: (name != default, name))]
 
 
-def scan_tree(args, directory, asset, findings, errors):
+def scan_tree(args, directory, asset, findings, errors, checked_files):
     entries = git_run(args, directory, "ls-tree", "-r", "-l", "-z", asset["commit"]).split(b"\0")
     for entry in filter(None, entries):
         metadata, _, name = entry.partition(b"\t")
@@ -249,6 +249,9 @@ def scan_tree(args, directory, asset, findings, errors):
             continue
         file = name.decode("utf-8", errors="replace")
         if not config_file(file):
+            continue
+        revision = (name, object_id)
+        if revision in checked_files:
             continue
         try:
             if int(size) > args.max_file_bytes:
@@ -262,6 +265,7 @@ def scan_tree(args, directory, asset, findings, errors):
                 findings.append({**asset, **row, "file": file})
                 if row["status"] == "candidate":
                     return True
+            checked_files.add(revision)
         except ERRORS as exc:
             errors.append({**asset, "file": file, "error": str(exc)})
     return False
@@ -281,12 +285,13 @@ def scan_repository(args, url, default, asset, findings, errors):
             directory = root / "repository"
             refs = git_refs(args, directory, default)
             checked = set()
+            checked_files = set()
             for branch, commit in refs:
                 if commit in checked:
                     continue
                 checked.add(commit)
                 asset.update(branch=branch, commit=commit)
-                candidate = scan_tree(args, directory, asset, findings, errors)
+                candidate = scan_tree(args, directory, asset, findings, errors, checked_files)
                 if candidate:
                     break
             if not refs:

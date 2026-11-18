@@ -32,22 +32,6 @@ TAG = re.compile(r"[\w][\w.-]{0,127}", re.ASCII)
 RUNTIME_FILE = re.compile(r"(?:^|/)(?:bin/java(?:\.exe)?|libjvm\.so|libjvm\.dylib|jvm\.dll)$", re.I)
 
 
-def docker_assets(api, repository):
-    seen = set()
-    token = None
-    while token not in seen:
-        seen.add(token)
-        params = {"repository": repository}
-        if token:
-            params["continuationToken"] = token
-        page = api.json(API_ROOT + "/assets", params)
-        yield from page["items"]
-        token = page.get("continuationToken")
-        if not token:
-            return
-    raise ValueError("Repeated Nexus continuation token")
-
-
 def extdirect_read(api, action, method, params):
     target = urlsplit(api.base)
     csrf = secrets.token_hex(16)
@@ -85,10 +69,7 @@ def repository_catalog(api, discovery):
     return extdirect_read(api, "coreui_Repository", "readReferences", {})
 
 
-def repository_assets(api, repository, discovery):
-    if discovery == "rest":
-        yield from docker_assets(api, repository)
-        return
+def repository_assets(api, repository):
     pending = ["v2"]
     seen = set()
     while pending:
@@ -292,7 +273,7 @@ def inventory(api, registry, args, mappings, workdir):
                     registry_url = f"{nexus_url.scheme}://{nexus_url.netloc}/{repository}"
                 host, prefix, insecure = endpoint(registry_url)
                 seen_refs = {}
-                for item in repository_assets(api, repository, discovery):
+                for item in repository_assets(api, repository):
                     match = MANIFEST_PATH.search(item["path"]) or BROWSE_TAG_PATH.fullmatch(item["path"])
                     if match:
                         seen_refs[match.groups()] = item["path"]
@@ -362,7 +343,8 @@ def inventory(api, registry, args, mappings, workdir):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--url")
-    parser.add_argument("--discovery", choices=DISCOVERY_MODES)
+    parser.add_argument("--discovery", choices=DISCOVERY_MODES,
+                        help="Repository catalog source. Image discovery always uses ExtDirect.")
     parser.add_argument("--profile", choices=("inventory", "java4shell"), default="inventory")
     parser.add_argument("--java-majors", type=parse_java_majors, default=DEFAULT_JAVA_MAJORS,
                         help="Comma-separated Java major versions, e.g. 17,21,25,27 (default: 17)")

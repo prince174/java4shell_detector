@@ -263,10 +263,14 @@ class NexusTests(unittest.TestCase):
 
         class FixtureApi:
             base = "https://nexus.invalid"
-            failure = ApiHttpError(404, "/service/rest/v1/assets")
+            failure = ApiHttpError(404, "/service/rest/v1/repositories")
 
-            def json(self, path, params=None):
-                raise self.failure
+            def json(self, path):
+                self_test.assertEqual(path, "/service/rest/v1/repositories")
+                calls.append(path)
+                if self.failure:
+                    raise self.failure
+                return [repository]
 
             def read(self, path, *, data, extra_headers):
                 self_test.assertEqual(path, "/service/extdirect")
@@ -285,20 +289,30 @@ class NexusTests(unittest.TestCase):
         self_test = self
         api = FixtureApi()
         self.assertEqual(nexus.repository_catalog(api, "auto"), [repository])
-        self.assertEqual({row["path"] for row in nexus.repository_assets(api, "images", "auto")},
+        self.assertEqual({row["path"] for row in nexus.repository_assets(api, "images")},
                          {"v2/team/image/tags/1.0", "v2/team/image/manifests/" + digest})
         self.assertIn(("coreui_Browse", "read", {"repositoryName": "images", "node": "v2"}), calls)
         with self.assertRaises(ApiHttpError):
-            list(nexus.repository_assets(api, "images", "rest"))
+            nexus.repository_catalog(api, "rest")
         api.failure = ApiTimeoutError("Request timed out")
         self.assertEqual(nexus.repository_catalog(api, "auto"), [repository])
-        self.assertEqual(len(list(nexus.repository_assets(api, "images", "auto"))), 2)
+        self.assertEqual(len(list(nexus.repository_assets(api, "images"))), 2)
         with self.assertRaises(ApiTimeoutError):
-            list(nexus.repository_assets(api, "images", "rest"))
+            nexus.repository_catalog(api, "rest")
         api.failure = RuntimeError("DNS lookup failed")
         with self.assertRaisesRegex(RuntimeError, "DNS lookup failed"):
             nexus.repository_catalog(api, "auto")
-        self.assertEqual(len(list(nexus.repository_assets(api, "images", "auto"))), 2)
+        self.assertEqual(len(list(nexus.repository_assets(api, "images"))), 2)
+        for mode in ("rest", "auto"):
+            with self.subTest(mode=mode):
+                api.failure = None
+                calls.clear()
+                self.assertEqual(nexus.repository_catalog(api, mode), [repository])
+                self.assertEqual(len(list(nexus.repository_assets(api, "images"))), 2)
+                self.assertEqual(calls[:2], [
+                    "/service/rest/v1/repositories",
+                    ("coreui_Browse", "read", {"repositoryName": "images", "node": "v2"}),
+                ])
 
     def test_path_based_routing_and_explicit_override(self):
         digest = "sha256:" + "a" * 64
@@ -306,11 +320,11 @@ class NexusTests(unittest.TestCase):
         class FixtureApi:
             base = "https://nexus.example.invalid"
 
-            def json(self, path, params=None):
+            def json(self, path):
                 if path.endswith("/repositories"):
                     return [{"name": repo, "format": "docker", "type": "hosted"}
                             for repo in ("auto-hosted", "port-hosted")]
-                return {"items": [{"path": "v2/team/demo/manifests/1.0"}]}
+                raise AssertionError(path)
 
         class FixtureRegistry:
             def __init__(self):
@@ -328,9 +342,12 @@ class NexusTests(unittest.TestCase):
         registry = FixtureRegistry()
         with tempfile.TemporaryDirectory() as tmp:
             args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="rest")
-            assets, _, errors = nexus.inventory(
-                FixtureApi(), registry, args, {"port-hosted": "https://nexus.example.invalid:18443"}, tmp
-            )
+            with patch.object(nexus, "repository_assets", return_value=[
+                {"path": "v2/team/demo/manifests/1.0"}
+            ]):
+                assets, _, errors = nexus.inventory(
+                    FixtureApi(), registry, args, {"port-hosted": "https://nexus.example.invalid:18443"}, tmp
+                )
         self.assertFalse(errors)
         self.assertEqual(len(assets), 2)
         self.assertEqual(registry.tags, ["nexus.example.invalid/auto-hosted/team/demo:1.0",
@@ -399,13 +416,10 @@ class NexusTests(unittest.TestCase):
         untagged_digest = "sha256:" + "2" * 64
 
         class NexusApi:
-            def json(self, path, params=None):
+            def json(self, path):
                 if path.endswith("/repositories"):
                     return [{"name": "hosted", "format": "docker", "type": "hosted"}]
-                if "continuationToken" not in params:
-                    return {"items": [{"path": f"v2/example/service/manifests/{tagged_digest}"},
-                                      {"path": "v2/example/service/manifests/alpha"}], "continuationToken": "next"}
-                return {"items": [{"path": f"v2/example/service/manifests/{untagged_digest}"}]}
+                raise AssertionError(path)
 
         class Registry:
             def __init__(self):
@@ -422,10 +436,15 @@ class NexusTests(unittest.TestCase):
 
         registry = Registry()
         with tempfile.TemporaryDirectory() as directory:
-            assets, findings, errors = nexus.inventory(
-                NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,),
-                                                         discovery="rest"),
-                {"hosted": "registry.example:5000"}, directory)
+            with patch.object(nexus, "repository_assets", return_value=[
+                {"path": f"v2/example/service/manifests/{tagged_digest}"},
+                {"path": "v2/example/service/manifests/alpha"},
+                {"path": f"v2/example/service/manifests/{untagged_digest}"},
+            ]):
+                assets, findings, errors = nexus.inventory(
+                    NexusApi(), registry, argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,),
+                                                             discovery="rest"),
+                    {"hosted": "registry.example:5000"}, directory)
         self.assertFalse(errors)
         self.assertEqual(registry.exported, [tagged_digest, untagged_digest])
         self.assertEqual([(row["tag"], row["digest"]) for row in assets],
@@ -463,10 +482,10 @@ class NexusTests(unittest.TestCase):
         index, missing, available = ("sha256:" + digit * 64 for digit in ("0", "1", "2"))
 
         class FixtureApi:
-            def json(self, path, params=None):
+            def json(self, path):
                 if path.endswith("/repositories"):
                     return [{"name": "hosted", "format": "docker", "type": "hosted"}]
-                return {"items": [{"path": "v2/service/manifests/latest"}]}
+                raise AssertionError(path)
 
         class FixtureRegistry(nexus.Registry):
             def __init__(self):
@@ -489,9 +508,12 @@ class NexusTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             args = argparse.Namespace(repository=[], include_proxy=False, java_majors=(17,), discovery="rest")
-            assets, findings, errors = nexus.inventory(
-                FixtureApi(), FixtureRegistry(), args, {"hosted": "registry.invalid"}, directory
-            )
+            with patch.object(nexus, "repository_assets", return_value=[
+                {"path": "v2/service/manifests/latest"}
+            ]):
+                assets, findings, errors = nexus.inventory(
+                    FixtureApi(), FixtureRegistry(), args, {"hosted": "registry.invalid"}, directory
+                )
         self.assertEqual([(row["digest"], row["status"]) for row in assets],
                          [(missing, "error"), (available, "scanned")])
         self.assertEqual([(row["platform"], row["status"]) for row in findings],

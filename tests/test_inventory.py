@@ -745,6 +745,15 @@ class ConsoleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             make_flags("nexus", {"delay": "nan"})
 
+    def test_http_stats_preserve_method_and_reset_status_on_transport_error(self):
+        row = stats()
+        update_stats(row, {"seconds": 0.05, "ok": True, "method": "GET",
+                           "operation": "/service/rest/v1/repositories", "http_status": 200})
+        update_stats(row, {"seconds": 0.1, "ok": False, "method": "POST",
+                           "operation": "/service/extdirect"})
+        self.assertEqual((row["method"], row["operation"], row["http_status"], row["errors"]),
+                         ("POST", "/service/extdirect", None, 1))
+
     def test_reports_contain_all_statuses_csv_candidates_only(self):
         rows = [{"repository": "=cmd", "version": v, "status": status}
                 for v, status in VERSIONS.items()]

@@ -4,7 +4,7 @@
       <root>
         <mxCell id="0"/><mxCell id="1" parent="0"/>
         <mxCell id="title" value="java4shell_detector" style="text;html=1;fontSize=27;fontStyle=1;align=left;" vertex="1" parent="1"><mxGeometry x="45" y="25" width="850" height="55" as="geometry"/></mxCell>
-        <mxCell id="browser" value="Браузер&lt;br&gt;Фильтры · пауза GET&lt;br&gt;Статистика ответов" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="45" y="210" width="165" height="85" as="geometry"/></mxCell>
+        <mxCell id="browser" value="Браузер&lt;br&gt;Фильтры · пауза API&lt;br&gt;Статистика ответов" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="45" y="210" width="165" height="85" as="geometry"/></mxCell>
         <mxCell id="app" value="Python API&lt;br&gt;Docker Compose&lt;br&gt;Запуск и прогресс" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#d5e8d4;strokeColor=#82b366;" vertex="1" parent="1"><mxGeometry x="260" y="210" width="165" height="85" as="geometry"/></mxCell>
         <mxCell id="env" value=".env&lt;br&gt;Адреса и учётные данные" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#fff2cc;strokeColor=#d6b656;" vertex="1" parent="1"><mxGeometry x="260" y="370" width="165" height="68" as="geometry"/></mxCell>
         <mxCell id="bb" value="Bitbucket Cloud / DC&lt;br&gt;Каталог REST · Git clone" style="rounded=1;whiteSpace=wrap;html=1;fillColor=#dae8fc;strokeColor=#6c8ebf;" vertex="1" parent="1"><mxGeometry x="490" y="135" width="180" height="80" as="geometry"/></mxCell>

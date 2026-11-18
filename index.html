@@ -230,7 +230,7 @@ function showStats(target, title, data) {
   for (const [label, value] of values) list.append(element('dt', label), element('dd', value));
   target.append(list);
   if (data.operation) {
-    const detail = element('p', data.operation);
+    const detail = element('p', [data.method, data.operation].filter(Boolean).join(' '));
     detail.className = 'hint';
     target.append(detail);
   }

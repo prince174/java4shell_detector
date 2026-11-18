@@ -50,7 +50,7 @@ def diagnostic(source, job, value):
 
 def stats():
     return {"count": 0, "errors": 0, "total": 0.0, "last": None, "max": 0.0,
-            "operation": None, "http_status": None}
+            "operation": None, "method": None, "http_status": None}
 
 
 def update_stats(row, event):
@@ -59,7 +59,7 @@ def update_stats(row, event):
     row["errors"] += int(not event["ok"])
     row["total"] += duration
     row.update(last=duration, max=max(row["max"], duration), operation=event["operation"],
-               http_status=event.get("http_status"))
+               method=event.get("method"), http_status=event.get("http_status"))
 
 
 def run_job(source, job, flags):

@@ -61,6 +61,7 @@ def verify(base, source, job, java_majors):
     assert results["total"] == len(results["items"]) == (len(expected_versions) if source == "bitbucket" else 10)
     assert results["javaMajors"] == java_majors and all(item["url"] for item in results["items"])
     assert job["http"]["count"] > 0 and not job["http"]["errors"]
+    assert job["http"]["method"] == ("POST" if source == "nexus" else "GET")
     if source == "nexus":
         assert len({row["digest"] for row in report["assets"]}) == len(ALL_VERSIONS)
         assert {row["platform"] for row in report["assets"]} == {"linux/amd64"}

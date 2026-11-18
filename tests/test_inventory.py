@@ -126,6 +126,20 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
              (2, "17.0.5", "outside_scope", "intermediate_base")],
         )
 
+    def test_docker_copy_checks_all_sources_but_excludes_destination(self):
+        base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
+        cases = [
+            ("/opt/artifacts /opt/java/openjdk/ /runtime/", "bundled_jdk"),
+            ('["/opt/artifacts", "/opt/java/openjdk/", "/runtime/"]', "bundled_jdk"),
+            ("/opt/artifacts /runtime/jdk/", "intermediate_base"),
+            ('["/opt/artifacts", "/runtime/jdk/"]', "intermediate_base"),
+        ]
+        for arguments, role in cases:
+            with self.subTest(arguments=arguments):
+                row, = bitbucket.declarations("Dockerfile", base + f"COPY --from=tools {arguments}")
+                self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                                 (1, "17.0.6", "candidate", role))
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

@@ -107,7 +107,9 @@ def copied_jdk_stages(lines):
                 continue
         else:
             paths = arguments.split()
-        if len(paths) >= 2 and all(isinstance(path, str) and path for path in paths) and JDK_DIRECTORY.fullmatch(paths[0]):
+        if len(paths) < 2 or not all(isinstance(path, str) and path for path in paths):
+            continue
+        if any(JDK_DIRECTORY.fullmatch(source) for source in paths[:-1]):
             stages.add(stage.lower())
     return stages
 

@@ -48,6 +48,10 @@ def extdirect_read(api, action, method, params):
     payload = {"action": action, "method": method, "data": [params], "type": "rpc", "tid": 1}
     response = json.loads(api.read("/service/extdirect", data=json.dumps(payload).encode(),
                                    extra_headers=headers))
+    if isinstance(response, list):
+        if len(response) != 1:
+            raise ValueError("Nexus ExtDirect returned an unexpected number of RPC responses")
+        response = response[0]
     result = response.get("result") if isinstance(response, dict) else None
     if not isinstance(result, dict) or result.get("success") is not True:
         message = response.get("message") if isinstance(response, dict) else None

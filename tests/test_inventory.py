@@ -508,6 +508,16 @@ class NexusTests(unittest.TestCase):
         self.assertNotIn("scope=private", event["error"])
         self.assertNotIn("fixture-secret", event["error"])
 
+    def test_extdirect_accepts_single_rpc_response_array(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        for entries in ([], [{"id": "v2/image", "leaf": False}]):
+            response = {"tid": 1, "result": {"success": True, "data": entries}}
+            api.read = lambda *args, **kwargs: json.dumps([response]).encode()
+            self.assertEqual(nexus.extdirect_read(api, "coreui_Browse", "read", {}), entries)
+        api.read = lambda *args, **kwargs: b"[]"
+        with self.assertRaisesRegex(ValueError, "number of RPC responses"):
+            nexus.extdirect_read(api, "coreui_Browse", "read", {})
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

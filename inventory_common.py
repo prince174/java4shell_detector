@@ -7,7 +7,7 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.error import HTTPError, URLError
-from urllib.parse import urlencode, urlsplit
+from urllib.parse import quote, urlencode, urlsplit
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 DEFAULT_JAVA_MAJORS = (17,)
@@ -168,6 +168,17 @@ class Api:
 
     def json(self, path, params=None):
         return json.loads(self.read(path, params))
+
+
+def redact_diagnostic(value):
+    message = str(value)
+    for key, secret in os.environ.items():
+        if secret and key.startswith(("BITBUCKET_", "NEXUS_")) and key.endswith(("_TOKEN", "_PASSWORD")):
+            message = message.replace(secret, "[скрыто]").replace(quote(secret, safe=""), "[скрыто]")
+    message = re.sub(r"(https?://)[^/@\s]+@", r"\1[скрыто]@", message)
+    message = re.sub(r"(?i)([?&](?:access_token|token|password|api_key)=)[^&\s]+",
+                     r"\1[скрыто]", message)
+    return message.replace("\r", " ").replace("\n", " ")[:800]
 
 
 def report_progress(enabled, kind, elapsed, ok, operation, **details):

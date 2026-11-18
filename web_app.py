@@ -4,7 +4,6 @@ import json
 import logging
 import math
 import os
-import re
 import subprocess
 import sys
 import threading
@@ -15,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, quote, urlencode, urlsplit
 from uuid import uuid4
 
-from inventory_common import load_env, parse_java_majors
+from inventory_common import load_env, parse_java_majors, redact_diagnostic
 
 ROOT = Path(__file__).resolve().parent
 SCRIPTS = {"bitbucket": "bitbucket_inventory.py", "nexus": "nexus_inventory.py"}
@@ -27,17 +26,6 @@ PAGE_SIZE = 10
 DIAGNOSTIC_LIMIT = 20
 LOGGER = logging.getLogger("java4shell_detector")
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
-
-
-def redact_diagnostic(value):
-    message = str(value)
-    for key, secret in os.environ.items():
-        if secret and key.startswith(("BITBUCKET_", "NEXUS_")) and key.endswith(("_TOKEN", "_PASSWORD")):
-            message = message.replace(secret, "[скрыто]").replace(quote(secret, safe=""), "[скрыто]")
-    message = re.sub(r"(https?://)[^/@\s]+@", r"\1[скрыто]@", message)
-    message = re.sub(r"(?i)([?&](?:access_token|token|password|api_key)=)[^&\s]+",
-                     r"\1[скрыто]", message)
-    return message.replace("\r", " ").replace("\n", " ")[:800]
 
 
 def diagnostic(source, job, value):

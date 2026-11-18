@@ -18,7 +18,7 @@ from urllib.parse import quote, unquote, urlsplit
 
 from inventory_common import (
     Api, ApiHttpError, ApiTimeoutError, DEFAULT_JAVA_MAJORS, JAVA4SHELL_MAJORS, classify, load_env, parse_java_majors,
-    report_progress, write_reports,
+    redact_diagnostic, report_progress, write_reports,
 )
 
 API_ROOT = "/service/rest/v1"
@@ -425,7 +425,7 @@ def main():
         for row in result[2]:
             context = " / ".join(str(row[key]) for key in ("stage", "repository", "image", "reference")
                                  if row.get(key))
-            print(f"{context or 'Nexus'}: {row['error']}", file=sys.stderr)
+            print(redact_diagnostic(f"{context or 'Nexus'}: {row['error']}"), file=sys.stderr)
     return code
 
 

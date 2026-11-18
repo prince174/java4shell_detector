@@ -517,6 +517,19 @@ class NexusTests(unittest.TestCase):
                 self.assertEqual(nexus.main(), 2)
             self.assertIn("aa-docker-prod: Repository missing from the Nexus catalog", stderr.getvalue())
 
+    def test_nexus_cli_masks_credentials_in_reported_errors(self):
+        with tempfile.TemporaryDirectory() as output:
+            argv = ["nexus_inventory.py", "--url", "https://nexus.invalid", "--output", output]
+            error = RuntimeError("Denied https://reader:private@nexus.invalid/?token=query-secret fixture-secret")
+            with (patch("sys.argv", argv), patch.dict(os.environ, {"NEXUS_TOKEN": "fixture-secret"}, clear=True),
+                  patch.object(nexus, "load_env"), patch.object(nexus.shutil, "which", return_value="crane"),
+                  patch.object(nexus, "repository_catalog", side_effect=error),
+                  contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as stderr):
+                self.assertEqual(nexus.main(), 2)
+        self.assertIn("list_repositories: Denied", stderr.getvalue())
+        for secret in ("reader:private", "query-secret", "fixture-secret"):
+            self.assertNotIn(secret, stderr.getvalue())
+
     def test_java4shell_report_reads_graalvm_product_version_separately(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):
             archive = Path(directory, "rootfs.tar")

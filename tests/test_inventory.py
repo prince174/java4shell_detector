@@ -540,10 +540,12 @@ class ConsoleTests(unittest.TestCase):
     def test_results_pages_group_repositories_and_encode_links(self):
         findings = [
             {"repository": f"workspace/repo-{index:02}", "evidence": "ci config/pom.xml (java.version)",
-             "commit": "abc", "line": 5, "status": "candidate" if index <= 11 else "outside_scope"}
+             "commit": "abc", "line": 5, "version": "21",
+             "status": "candidate" if index <= 11 else "outside_scope"}
             for index in range(1, 24)
         ]
-        findings.append(findings[0].copy())
+        findings.insert(0, {**findings[0], "status": "unknown_version", "line": 2})
+        findings.append({**findings[1], "version": "25", "line": 9})
         with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
             output = Path(tmp)
             write_reports(output / "bitbucket" / "run", {
@@ -558,13 +560,14 @@ class ConsoleTests(unittest.TestCase):
                 second = results_page("bitbucket", 2, True)
                 last = results_page("bitbucket", 3, False)
                 image, = results_page("nexus", 1, False)["items"]
-        self.assertEqual((len(first["items"]), len(last["items"]), first["pages"]), (10, 3, 3))
+        self.assertEqual((len(first["items"]), len(last["items"]), first["pages"]), (10, 1, 2))
         self.assertEqual((second["total"], len(second["items"])), (11, 1))
         self.assertEqual(first["javaMajors"], [17, 21])
         group = first["items"][0]
         self.assertEqual(group["url"], "https://bitbucket.org/workspace/repo-01")
-        self.assertEqual(len(group["findings"]), 2)
-        self.assertTrue(group["findings"][0]["url"].endswith("/src/abc/ci%20config/pom.xml#lines-5"))
+        finding, = group["findings"]
+        self.assertEqual((finding["status"], finding["version"]), ("candidate", "21"))
+        self.assertTrue(finding["url"].endswith("/src/abc/ci%20config/pom.xml#lines-5"))
         self.assertEqual(image["url"], "http://127.0.0.1:18182/#browse/browse:test-repo:v2%2Ffoo%2Fimage%2Fmanifests%2F25")
 
     def test_progress_aggregation_and_fractional_delay(self):

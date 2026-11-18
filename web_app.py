@@ -185,6 +185,8 @@ def result_groups(path, stamp):
             url = f"{base}/#browse/browse:{quote(repository, safe='')}:{asset_path}" if base else ""
         else:
             key = (repository,)
+            if row["status"] != "candidate" or key in groups:
+                continue
             title = repository
             owner, slug = (quote(part, safe="") for part in repository.split("/", 1))
             project = row.get("project") or ("Без проекта" if cloud else repository.split("/", 1)[0])

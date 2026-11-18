@@ -58,7 +58,7 @@ def verify(base, source, job, java_majors):
     assert len(candidates) == len(expected_versions)
     assert {row["version"].partition("+")[0] for row in candidates} == expected_versions
     results = json.loads(request(base, f"/api/results/{source}?page=1"))
-    assert results["total"] == len(results["items"]) == 10
+    assert results["total"] == len(results["items"]) == (len(expected_versions) if source == "bitbucket" else 10)
     assert results["javaMajors"] == java_majors and all(item["url"] for item in results["items"])
     assert job["http"]["count"] > 0 and not job["http"]["errors"]
     if source == "nexus":
@@ -68,6 +68,12 @@ def verify(base, source, job, java_majors):
                    for row in report["findings"])
         assert job["registry"]["count"] and not job["registry"]["errors"]
     else:
+        evidence = []
+        for item in results["items"]:
+            finding, = item["findings"]
+            assert finding["status"] == "candidate" and finding["url"] and finding["file"]
+            evidence.append(finding["version"].partition("+")[0])
+        assert set(evidence) == expected_versions
         assert all(row["status"] == "scanned" and row["commit"] for row in report["assets"])
         assert job["git"]["count"] == EXPECTED["assets"] and not job["git"]["errors"]
         assert all(row["java_major"] == row["version"].split(".")[0] for row in candidates)

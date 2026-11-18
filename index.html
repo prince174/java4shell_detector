@@ -76,7 +76,7 @@ h3{font-size:1rem}a{color:var(--accent)}.reports{display:flex;flex-wrap:wrap;gap
 </div>
 <section id="results" hidden>
 <h2 id="result-title"></h2>
-<label class="check"><input id="candidates-only" type="checkbox"> Только кандидаты</label>
+<label id="candidate-filter" class="check"><input id="candidates-only" type="checkbox"> Только кандидаты</label>
 <p class="hint" id="result-status" aria-live="polite"></p>
 <ul class="result-list" id="result-list"></ul>
 <div class="pagination" aria-label="Страницы результатов">
@@ -140,30 +140,16 @@ function resultItem(item) {
       ' · кандидатов: ' + item.findings.filter(finding => finding.status === 'candidate').length),
       findingList(item.findings));
   } else {
-    const files = new Map();
-    for (const finding of item.findings) {
-      if (!files.has(finding.file)) files.set(finding.file, []);
-      files.get(finding.file).push(finding);
-    }
-    const candidates = [...files.values()].filter(rows => rows.some(row => row.status === 'candidate')).length;
-    const heading = element('summary', '');
-    heading.append(resultLink(item.title.split('/').at(-1), item.url),
-      element('span', ' · файлов: ' + files.size + ' · кандидатов: ' + candidates));
-    const list = element('ul', '');
-    for (const [file, findings] of files) {
-      const candidate = findings.find(finding => finding.status === 'candidate');
-      if (candidatesOnly.checked && !candidate) continue;
-      const entry = element('li', '');
-      const filePanel = element('details', '');
-      const title = element('summary', '');
-      title.append(resultLink(file, (candidate || findings[0]).url));
-      if (candidate) title.append(element('span', ' · кандидат' +
-        (candidate.java_major ? ' · Java ' + candidate.java_major : '')));
-      filePanel.append(title, findingList(findings));
-      entry.append(filePanel);
-      list.append(entry);
-    }
-    details.append(heading, list);
+    const [finding] = item.findings;
+    const version = finding.version || finding.java_major || finding.product_version;
+    row.append(resultLink(item.title.split('/').at(-1), item.url),
+      element('span', ' · кандидат · Java ' + version));
+    const reason = finding.policy_reason === 'Affected Java branch; verify vendor build and patch level'
+      ? 'Ветка Java входит в область проверки. Нужно сверить сборку поставщика и уровень обновления.'
+      : finding.policy_reason || 'Версия Java соответствует критериям выбранного профиля.';
+    row.append(element('p', reason),
+      resultLink(finding.file + (finding.line ? ':' + finding.line : ''), finding.url));
+    return row;
   }
   row.append(details);
   return row;
@@ -204,7 +190,7 @@ async function showResults() {
       resultStatus.textContent = 'Сначала запусти опрос этого источника.';
       return;
     }
-    resultStatus.textContent = 'Объектов: ' + data.total + ' · Java: ' + data.javaMajors.join(', ') +
+    resultStatus.textContent = (view === 'bitbucket' ? 'Репозиториев-кандидатов: ' : 'Объектов: ') + data.total + ' · Java: ' + data.javaMajors.join(', ') +
       ' · Опрос: ' + new Date(data.generatedAt).toLocaleString('ru-RU');
     if (data.profile === 'java4shell') resultStatus.textContent += ' · CVE-2026-114938';
     if (!data.items.length) resultStatus.textContent += ' · Совпадений нет';
@@ -224,6 +210,7 @@ for (const tab of tabs) tab.addEventListener('click', () => {
   for (const item of tabs) item.setAttribute('aria-pressed', String(item === tab));
   document.querySelector('#scan').hidden = view !== 'scan';
   resultPanel.hidden = view === 'scan';
+  document.querySelector('#candidate-filter').hidden = view !== 'nexus';
   document.querySelector('#result-title').textContent = tab.textContent;
   showResults();
 });

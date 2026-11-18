@@ -2,6 +2,7 @@
 import argparse
 import base64
 import fnmatch
+import json
 import math
 import os
 import re
@@ -22,7 +23,8 @@ ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
 JAVA = r"(?:openjdk|temurin|(?:amazon)?corretto|zulu|sapmachine|liberica|semeru|graalvm|oraclejdk|oracle-jdk|jdk|jre|java|jetbrains/runtime)"
 JAVA_IMAGE = re.compile(rf"(?:^|[/_.-]){JAVA}(?=[:/_.@\d-]|$)", re.I)
 TEMURIN_IMAGE = re.compile(r"(?:^|/)eclipse-temurin(?=[:@]|$)", re.I)
-COPY_JDK = re.compile(r"^\s*COPY\s+--from=(\S+)\s+\S*/(?:jdk|openjdk|jre)/?\s+\S+", re.I)
+COPY_FROM = re.compile(r"^\s*COPY\s+--from=(\S+)\s+(.+)$", re.I)
+JDK_DIRECTORY = re.compile(r"[^\r\n]*/(?:jdk|openjdk|jre)/?", re.I)
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
 SETTING = re.compile(
@@ -91,6 +93,25 @@ def version_value(value, java_majors):
     return "", "unknown_version"
 
 
+def copied_jdk_stages(lines):
+    stages = set()
+    for line in lines:
+        copy = COPY_FROM.match(line)
+        if not copy:
+            continue
+        stage, arguments = copy.groups()
+        if arguments.startswith("["):
+            try:
+                paths = json.loads(arguments)
+            except ValueError:
+                continue
+        else:
+            paths = arguments.split()
+        if len(paths) >= 2 and all(isinstance(path, str) and path for path in paths) and JDK_DIRECTORY.fullmatch(paths[0]):
+            stages.add(stage.lower())
+    return stages
+
+
 def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     name = PurePosixPath(path).name.lower()
     if name == "pom.xml":
@@ -101,7 +122,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         (".dockerfile", ".containerfile")
     )
     stages = [number for number, line in enumerate(lines, 1) if FROM.match(line)] if dockerfile else []
-    copied_jdks = {copy[1].lower() for line in lines[stages[-1]:] if (copy := COPY_JDK.match(line))} if stages else set()
+    copied_jdks = copied_jdk_stages(lines[stages[-1]:]) if stages else set()
     variables = {}
     xml_declarations = {}
     if name == "pom.xml":

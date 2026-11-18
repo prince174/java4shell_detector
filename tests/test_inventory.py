@@ -111,6 +111,21 @@ FROM eclipse-temurin:17-jre
              (2, "17.0.6+10", "candidate", "build_jdk_declaration")],
         )
 
+    def test_docker_json_copy_detects_jdk_bundled_in_final_stage(self):
+        dockerfile = """FROM eclipse-temurin:17.0.6 AS tools
+FROM eclipse-temurin:17.0.5 AS old
+COPY --from=tools ["/opt/java/openjdk/", "/scratch/"]
+FROM debian:stable
+COPY --from=old ["/opt/java/openjdk/bin/java", "/usr/local/bin/java"]
+COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
+"""
+        rows = list(bitbucket.declarations("Dockerfile", dockerfile))
+        self.assertEqual(
+            [(row["line"], row["version"], row["status"], row["role"]) for row in rows],
+            [(1, "17.0.6", "candidate", "bundled_jdk"),
+             (2, "17.0.5", "outside_scope", "intermediate_base")],
+        )
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

@@ -102,6 +102,15 @@ FROM eclipse-temurin:17-jre
                          [("build_jdk_declaration", "17.0.10", 1),
                           ("bytecode_target", "17.0.10", 2)])
 
+    def test_asdf_java_alternatives_support_tabs_and_inline_comments(self):
+        text = "nodejs 22.0.0\njava\ttemurin-17.0.5  temurin-17.0.6+10 # 21.0.1\n"
+        rows = list(bitbucket.declarations(".tool-versions", text))
+        self.assertEqual(
+            [(row["line"], row["version"], row["status"], row["role"]) for row in rows],
+            [(2, "17.0.5", "outside_scope", "build_jdk_declaration"),
+             (2, "17.0.6+10", "candidate", "build_jdk_declaration")],
+        )
+
     def test_maven_comments_do_not_override_active_properties_or_shift_evidence(self):
         pom = """<project>
   <properties>

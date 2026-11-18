@@ -162,8 +162,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             matches.extend(("jdk", match[1]) for match in JENKINS_JDK.finditer(line))
         if name == ".java-version":
             matches.append(("java-version", stripped))
-        if name == ".tool-versions" and stripped.startswith("java "):
-            matches.append(("java-version", stripped.split()[1]))
+        if name == ".tool-versions":
+            tool, *versions = stripped.partition("#")[0].split()
+            if tool == "java":
+                matches.extend(("java-version", version) for version in versions)
         if name == ".sdkmanrc" and stripped.startswith("java="):
             matches.append(("java-version", stripped.partition("=")[2]))
         for key, value in matches:

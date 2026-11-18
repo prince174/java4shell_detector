@@ -523,18 +523,25 @@ class NexusTests(unittest.TestCase):
                 self.assertEqual(list(candidates), [])
             self.assertIn("aa-docker-prod: Repository missing from the Nexus catalog", stderr.getvalue())
 
-    def test_nexus_cli_masks_credentials_in_reported_errors(self):
+    def test_nexus_masks_credentials_in_terminal_and_json_errors(self):
         with tempfile.TemporaryDirectory() as output:
             argv = ["nexus_inventory.py", "--url", "https://nexus.invalid", "--output", output]
-            error = RuntimeError("Denied https://reader:private@nexus.invalid/?token=query-secret fixture-secret")
+            error = RuntimeError(
+                "Denied https://reader:private@nexus.invalid/?token=query-secret fixture-secret "
+                + "x" * 900 + " end of diagnostic"
+            )
             with (patch("sys.argv", argv), patch.dict(os.environ, {"NEXUS_TOKEN": "fixture-secret"}, clear=True),
                   patch.object(nexus, "load_env"), patch.object(nexus.shutil, "which", return_value="crane"),
                   patch.object(nexus, "repository_catalog", side_effect=error),
                   contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()) as stderr):
                 self.assertEqual(nexus.main(), 2)
+            report = json.loads(Path(output, "inventory.json").read_text(encoding="utf-8"))
+            report_error = report["errors"][0]["error"]
         self.assertIn("list_repositories: Denied", stderr.getvalue())
+        self.assertTrue(report_error.endswith("end of diagnostic"))
         for secret in ("reader:private", "query-secret", "fixture-secret"):
             self.assertNotIn(secret, stderr.getvalue())
+            self.assertNotIn(secret, report_error)
 
     def test_java4shell_report_reads_graalvm_product_version_separately(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.redirect_stdout(io.StringIO()):

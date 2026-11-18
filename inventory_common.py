@@ -170,7 +170,7 @@ class Api:
         return json.loads(self.read(path, params))
 
 
-def redact_diagnostic(value):
+def redact_diagnostic(value, *, limit=800):
     message = str(value)
     for key, secret in os.environ.items():
         if secret and key.startswith(("BITBUCKET_", "NEXUS_")) and key.endswith(("_TOKEN", "_PASSWORD")):
@@ -178,7 +178,7 @@ def redact_diagnostic(value):
     message = re.sub(r"(https?://)[^/@\s]+@", r"\1[скрыто]@", message)
     message = re.sub(r"(?i)([?&](?:access_token|token|password|api_key)=)[^&\s]+",
                      r"\1[скрыто]", message)
-    return message.replace("\r", " ").replace("\n", " ")[:800]
+    return message.replace("\r", " ").replace("\n", " ")[:limit]
 
 
 def report_progress(enabled, kind, elapsed, ok, operation, **details):
@@ -203,7 +203,8 @@ def write_reports(output, scope, assets, findings, errors):
         "scope": scope,
         "summary": {"assets": len(assets), "findings": len(findings),
                     "candidates": len(candidates), "errors": len(errors)},
-        "assets": assets, "findings": findings, "errors": errors,
+        "assets": assets, "findings": findings,
+        "errors": [{**row, "error": redact_diagnostic(row["error"], limit=None)} for row in errors],
     }
     (output / "inventory.json").write_text(
         json.dumps(report, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"

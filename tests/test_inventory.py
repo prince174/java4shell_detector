@@ -140,6 +140,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                                  (1, "17.0.6", "candidate", role))
 
+    def test_docker_copy_options_are_not_sources(self):
+        base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
+        cases = [
+            ("--from=tools --exclude=/cache/jdk /artifacts /runtime/", "intermediate_base"),
+            ('--chown=1000:1000 --from=tools ["/opt/java/openjdk/", "/runtime/"]', "bundled_jdk"),
+        ]
+        for arguments, role in cases:
+            with self.subTest(arguments=arguments):
+                row, = bitbucket.declarations("Dockerfile", base + f"COPY {arguments}")
+                self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                                 (1, "17.0.6", "candidate", role))
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

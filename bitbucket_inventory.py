@@ -23,7 +23,7 @@ ERRORS = (RuntimeError, ValueError, KeyError, TypeError, OSError)
 JAVA = r"(?:openjdk|temurin|(?:amazon)?corretto|zulu|sapmachine|liberica|semeru|graalvm|oraclejdk|oracle-jdk|jdk|jre|java|jetbrains/runtime)"
 JAVA_IMAGE = re.compile(rf"(?:^|[/_.-]){JAVA}(?=[:/_.@\d-]|$)", re.I)
 TEMURIN_IMAGE = re.compile(r"(?:^|/)eclipse-temurin(?=[:@]|$)", re.I)
-COPY_FROM = re.compile(r"^\s*COPY\s+--from=(\S+)\s+(.+)$", re.I)
+COPY_OPTIONS = re.compile(r"^\s*COPY\s+((?:--\S+\s+)+)(.+)$", re.I)
 JDK_DIRECTORY = re.compile(r"[^\r\n]*/(?:jdk|openjdk|jre)/?", re.I)
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
@@ -96,10 +96,13 @@ def version_value(value, java_majors):
 def copied_jdk_stages(lines):
     stages = set()
     for line in lines:
-        copy = COPY_FROM.match(line)
+        copy = COPY_OPTIONS.match(line)
         if not copy:
             continue
-        stage, arguments = copy.groups()
+        options, arguments = copy.groups()
+        stage = next((option[7:] for option in options.split() if option.lower().startswith("--from=")), "")
+        if not stage:
+            continue
         if arguments.startswith("["):
             try:
                 paths = json.loads(arguments)

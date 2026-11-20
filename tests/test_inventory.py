@@ -535,6 +535,14 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Browse unavailable"):
             nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_extdirect_rejects_response_for_another_transaction(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        api.read = lambda *args, **kwargs: json.dumps({
+            "tid": 7, "result": {"success": True, "data": []},
+        }).encode()
+        with self.assertRaisesRegex(ValueError, "transaction ID"):
+            nexus.extdirect_read(api, "coreui_Browse", "read", {})
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

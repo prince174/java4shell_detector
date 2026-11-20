@@ -213,6 +213,14 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 selected, = bitbucket.declarations("build.gradle.kts", expression, (17, 21))
                 self.assertEqual(selected["status"], "candidate")
 
+    def test_groovy_toolchain_accepts_call_without_parentheses(self):
+        for expression in ("jvmToolchain 21", "languageVersion = JavaLanguageVersion.of 21"):
+            with self.subTest(expression=expression):
+                row, = [row for row in bitbucket.declarations("build.gradle", expression, (17, 21))
+                        if row["status"] == "candidate"]
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("21", "candidate", "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

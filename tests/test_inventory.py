@@ -543,6 +543,15 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "transaction ID"):
             nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_extdirect_rejects_response_for_another_operation(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        for fields in ({"action": "coreui_Repository"}, {"method": "delete"}):
+            with self.subTest(fields=fields):
+                response = {"tid": 1, "result": {"success": True, "data": []}, **fields}
+                api.read = lambda *args, **kwargs: json.dumps(response).encode()
+                with self.assertRaisesRegex(ValueError, "another RPC operation"):
+                    nexus.extdirect_read(api, "coreui_Browse", "read", {})
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

@@ -54,6 +54,10 @@ def extdirect_read(api, action, method, params):
         response = response[0]
     if isinstance(response, dict) and response.get("tid", 1) != payload["tid"]:
         raise ValueError("Nexus ExtDirect returned a mismatched RPC transaction ID")
+    if isinstance(response, dict) and any(
+        key in response and response[key] != payload[key] for key in ("action", "method")
+    ):
+        raise ValueError("Nexus ExtDirect returned a response for another RPC operation")
     if isinstance(response, dict) and response.get("type") == "exception":
         raise RuntimeError(f"Nexus ExtDirect {action}.{method} failed: {response.get('message') or 'RPC exception'}")
     result = response.get("result") if isinstance(response, dict) else None

@@ -187,7 +187,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 yield finding(number, role, "FROM" if stage else "image", value, image=True)
             continue
         matches = xml_declarations.pop(number, [])
-        setting = SETTING.match(line)
+        setting_line = re.sub(r"^\s*ENV\s+", "", line, flags=re.I) if dockerfile else line
+        setting = SETTING.match(setting_line)
         if setting:
             matches.append((setting["key"], setting["value"]))
         if name.endswith((".gradle", ".gradle.kts")):

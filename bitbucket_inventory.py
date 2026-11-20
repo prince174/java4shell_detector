@@ -132,6 +132,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     variables = {}
     xml_declarations = {}
     gradle_declarations = {}
+    jenkins_declarations = {}
+    if name.startswith("jenkinsfile"):
+        for match in JENKINS_JDK.finditer(text):
+            line_number = text.count("\n", 0, match.start()) + 1
+            jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):
         for match in GRADLE_TOOLCHAIN.finditer(text):
             line_number = text.count("\n", 0, match.start()) + 1
@@ -199,8 +204,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith(".gradle"):
             matches.extend(("toolchain", match[1]) for match in GRADLE_GROOVY_TOOLCHAIN.finditer(line))
-        if name.startswith("jenkinsfile"):
-            matches.extend(("jdk", match[1]) for match in JENKINS_JDK.finditer(line))
+        matches.extend(jenkins_declarations.pop(number, []))
         if name == ".java-version":
             matches.append(("java-version", stripped))
         if name == ".tool-versions":

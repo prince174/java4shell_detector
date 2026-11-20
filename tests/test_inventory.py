@@ -235,6 +235,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (2, "21", "candidate", "build_jdk_declaration"))
 
+    def test_multiline_jenkins_jdk_preserves_declaration_line(self):
+        text = "tools {\n  jdk(\n    'jdk-17.0.6'\n  )\n}"
+        row, = bitbucket.declarations("Jenkinsfile", text)
+        self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                         (2, "17.0.6", "candidate", "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

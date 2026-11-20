@@ -638,6 +638,17 @@ class NexusTests(unittest.TestCase):
         self.assertEqual((row["version"], row["status"], row["vendor"], row["role"]),
                          ("17.0.6", "candidate", "Fixture", "image_runtime"))
 
+    def test_release_accepts_spacing_around_assignment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            archive = Path(directory, "rootfs.tar")
+            tar_fixture(archive, {
+                "jdk/release": b'JAVA_VERSION = "17.0.5"\nJAVA_RUNTIME_VERSION\t=\t"17.0.6+10"\n',
+                "jdk/bin/java": b"fixture",
+            })
+            row, = nexus.java_files(archive)
+        self.assertEqual((row["version"], row["status"], row["evidence"], row["role"]),
+                         ("17.0.6+10", "candidate", "/jdk/release", "image_runtime"))
+
     def test_deduplicate_manifest_alias_keep_untagged_digest(self):
         tagged_digest = "sha256:" + "1" * 64
         untagged_digest = "sha256:" + "2" * 64

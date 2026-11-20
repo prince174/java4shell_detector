@@ -204,6 +204,15 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                                  (2, value.removesuffix("-tem"), status, "build_jdk_declaration"))
 
+    def test_gradle_toolchain_accepts_space_before_parenthesis(self):
+        for expression in ("jvmToolchain (21)", "languageVersion.set(JavaLanguageVersion.of (21))"):
+            with self.subTest(expression=expression):
+                row, = bitbucket.declarations("build.gradle.kts", expression)
+                self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                                 (1, "21", "outside_scope", "build_jdk_declaration"))
+                selected, = bitbucket.declarations("build.gradle.kts", expression, (17, 21))
+                self.assertEqual(selected["status"], "candidate")
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

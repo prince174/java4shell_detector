@@ -131,6 +131,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     copied_jdks = copied_jdk_stages(lines[stages[-1]:]) if stages else set()
     variables = {}
     xml_declarations = {}
+    gradle_declarations = {}
+    if name.endswith((".gradle", ".gradle.kts")):
+        for match in GRADLE_TOOLCHAIN.finditer(text):
+            line_number = text.count("\n", 0, match.start()) + 1
+            gradle_declarations.setdefault(line_number, []).append(("toolchain", match[1]))
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
             for key, value in re.findall(r"<([\w.-]+)>\s*([^<]+?)\s*</\1>", block):
@@ -191,8 +196,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         setting = SETTING.match(setting_line)
         if setting:
             matches.append((setting["key"], setting["value"]))
-        if name.endswith((".gradle", ".gradle.kts")):
-            matches.extend(("toolchain", match[1]) for match in GRADLE_TOOLCHAIN.finditer(line))
+        matches.extend(gradle_declarations.pop(number, []))
         if name.endswith(".gradle"):
             matches.extend(("toolchain", match[1]) for match in GRADLE_GROOVY_TOOLCHAIN.finditer(line))
         if name.startswith("jenkinsfile"):

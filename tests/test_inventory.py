@@ -229,6 +229,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                                  (2, "17.0.6", "candidate", "build_jdk_declaration"))
         self.assertFalse(list(bitbucket.declarations("Dockerfile", "RUN echo JAVA_VERSION=17.0.6")))
 
+    def test_multiline_gradle_toolchain_preserves_opening_line(self):
+        text = "java {\n  jvmToolchain(\n    21\n  )\n}"
+        row, = bitbucket.declarations("build.gradle.kts", text, (17, 21))
+        self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                         (2, "21", "candidate", "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

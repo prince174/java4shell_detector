@@ -569,6 +569,12 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "another RPC operation"):
                     nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_browse_invalid_entry_reports_repository_and_node(self):
+        for entry in (None, {}, {"id": 7}, {"id": ""}):
+            with self.subTest(entry=entry), patch.object(nexus, "extdirect_read", return_value=[entry]):
+                with self.assertRaisesRegex(ValueError, "repository images, node v2"):
+                    list(nexus.repository_assets(None, "images"))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

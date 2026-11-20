@@ -96,6 +96,8 @@ def repository_assets(api, repository):
         entries = extdirect_read(api, "coreui_Browse", "read",
                                  {"repositoryName": repository, "node": node})
         for entry in entries:
+            if not isinstance(entry, dict) or not isinstance(entry.get("id"), str) or not entry["id"]:
+                raise ValueError(f"Nexus Browse returned an invalid entry for repository {repository}, node {node}")
             path = unquote(entry["id"])
             if not path.startswith(unquote(node) + "/") or path == "v2/blobs":
                 continue

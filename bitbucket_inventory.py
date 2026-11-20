@@ -42,6 +42,7 @@ FROM = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", re.I)
 IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"]+)""", re.I)
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\s*([^(),]+)\s*\)")
 GRADLE_GROOVY_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s+(\d+)\b")
+GRADLE_JVM_TARGET = re.compile(r"\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\s*\)")
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")
 
@@ -202,6 +203,9 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         if setting:
             matches.append((setting["key"], setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
+        if name.endswith((".gradle", ".gradle.kts")):
+            matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
+                           for match in GRADLE_JVM_TARGET.finditer(line))
         if name.endswith(".gradle"):
             matches.extend(("toolchain", match[1]) for match in GRADLE_GROOVY_TOOLCHAIN.finditer(line))
         matches.extend(jenkins_declarations.pop(number, []))

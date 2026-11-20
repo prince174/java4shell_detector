@@ -52,6 +52,8 @@ def extdirect_read(api, action, method, params):
         if len(response) != 1:
             raise ValueError("Nexus ExtDirect returned an unexpected number of RPC responses")
         response = response[0]
+    if isinstance(response, dict) and response.get("type") == "exception":
+        raise RuntimeError(f"Nexus ExtDirect {action}.{method} failed: {response.get('message') or 'RPC exception'}")
     result = response.get("result") if isinstance(response, dict) else None
     if not isinstance(result, dict) or result.get("success") is not True:
         message = response.get("message") if isinstance(response, dict) else None

@@ -526,6 +526,15 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Not authorized to browse images"):
             nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_extdirect_rejects_rpc_exception_even_with_success_result(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        api.read = lambda *args, **kwargs: json.dumps({
+            "type": "exception", "message": "Browse unavailable",
+            "result": {"success": True, "data": []},
+        }).encode()
+        with self.assertRaisesRegex(RuntimeError, "Browse unavailable"):
+            nexus.extdirect_read(api, "coreui_Browse", "read", {})
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

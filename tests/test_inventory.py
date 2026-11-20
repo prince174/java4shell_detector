@@ -601,6 +601,13 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "repository images, node v2"):
                     list(nexus.repository_assets(None, "images"))
 
+    def test_manifest_rejects_malformed_platform_descriptor(self):
+        registry = object.__new__(nexus.Registry)
+        registry.run = lambda *args: (_ for _ in ()).throw(AssertionError("unexpected registry request"))
+        digest = "sha256:" + "a" * 64
+        with self.assertRaisesRegex(ValueError, "Invalid image platform descriptor"):
+            list(registry.manifests("registry.invalid/image", digest, False, "linux/amd64"))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

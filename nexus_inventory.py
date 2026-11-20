@@ -189,6 +189,8 @@ class Registry:
         if not DIGEST.fullmatch(digest) or digest in chain or len(chain) >= 8:
             raise ValueError(f"Invalid or recursive manifest digest: {digest}")
         ref = f"{name}@{digest}"
+        if platform is not None and not isinstance(platform, dict):
+            raise ValueError(f"Invalid image platform descriptor for {ref}")
         manifest = json.loads(self.run("manifest", ref, insecure))
         if "manifests" in manifest:
             for descriptor in manifest["manifests"]:
@@ -328,7 +330,7 @@ def inventory(api, registry, args, mappings, workdir):
                         else:
                             index_digest = registry.run("digest", f"{name}:{reference}", insecure).decode().strip()
                         def record_manifest_error(digest, platform, error):
-                            descriptor = platform or {}
+                            descriptor = platform if isinstance(platform, dict) else {}
                             label = "/".join(descriptor[key] for key in ("os", "architecture", "variant")
                                              if descriptor.get(key))
                             asset = {**location, "index_digest": index_digest, "digest": digest,

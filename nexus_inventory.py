@@ -198,6 +198,12 @@ class Registry:
             if not isinstance(manifest["manifests"], list):
                 raise ValueError(f"Invalid platform manifest list for {ref}")
             for descriptor in manifest["manifests"]:
+                if not isinstance(descriptor, dict):
+                    error = ValueError(f"Invalid platform manifest descriptor for {ref}")
+                    if on_error is None:
+                        raise error
+                    on_error(None, None, error)
+                    continue
                 labels = descriptor.get("annotations") or {}
                 if (labels.get("vnd.docker.reference.type") == "attestation-manifest"
                         or descriptor.get("artifactType")):

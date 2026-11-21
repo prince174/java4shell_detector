@@ -636,6 +636,24 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid platform manifest list"):
                     list(registry.manifests("registry.invalid/image", digest, False))
 
+    def test_manifest_continues_after_malformed_index_entry(self):
+        registry = object.__new__(nexus.Registry)
+        parent = "sha256:" + "a" * 64
+        child = "sha256:" + "b" * 64
+        def run(command, ref, insecure):
+            if ref.endswith(parent):
+                return json.dumps({"manifests": [None, {
+                    "digest": child, "platform": {"os": "linux", "architecture": "amd64"},
+                }]}).encode()
+            return b'{"layers":[],"config":{"mediaType":"application/vnd.oci.image.config.v1+json"}}'
+        registry.run = run
+        errors = []
+        rows = list(registry.manifests("registry.invalid/image", parent, False,
+                                      on_error=lambda *args: errors.append(args)))
+        self.assertEqual(rows, [(child, "linux/amd64")])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("Invalid platform manifest descriptor", str(errors[0][2]))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

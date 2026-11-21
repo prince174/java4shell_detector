@@ -218,8 +218,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                         matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
-            if not setting:
-                matches.extend(match.groups() for match in GRADLE_COMPATIBILITY.finditer(line))
+            compatibility = [match.groups() for match in GRADLE_COMPATIBILITY.finditer(line)]
+            if compatibility:
+                matches = [(key, value) for key, value in matches
+                           if key not in {"sourceCompatibility", "targetCompatibility"}]
+                matches.extend(compatibility)
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                            for match in GRADLE_JVM_TARGET.finditer(line))
             matches.extend(("jvmTarget", match[1]) for match in GRADLE_JVM_TARGET_STRING.finditer(line))

@@ -681,6 +681,17 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid image config descriptor"):
                     list(registry.manifests("registry.invalid/image", digest, False))
 
+    def test_manifest_reports_invalid_config_media_type(self):
+        registry = object.__new__(nexus.Registry)
+        digest = "sha256:" + "a" * 64
+        for media_type in (None, [], 1):
+            with self.subTest(media_type=media_type):
+                registry.run = lambda *args: json.dumps({
+                    "layers": [], "config": {"mediaType": media_type},
+                }).encode()
+                with self.assertRaisesRegex(ValueError, "Invalid image config media type"):
+                    list(registry.manifests("registry.invalid/image", digest, False))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

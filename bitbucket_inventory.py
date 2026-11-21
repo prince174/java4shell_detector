@@ -195,7 +195,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             resolved = substitute(value, variables)
             if JAVA_IMAGE.search(resolved) or JAVA_IMAGE.search(value) or VARIABLE.search(value) or "{{" in value:
                 role = ("runtime_base" if number == stages[-1] else "intermediate_base") if stage else "image_reference"
-                if stage and stage[2] and stage[2].lower() in copied_jdks:
+                if stage and (str(stages.index(number)) in copied_jdks
+                              or stage[2] and stage[2].lower() in copied_jdks):
                     role = "bundled_jdk"
                 yield finding(number, role, "FROM" if stage else "image", value, image=True)
             continue

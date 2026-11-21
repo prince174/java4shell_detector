@@ -269,6 +269,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         text = "FROM debian:stable\nENV APP_NOTE JAVA_VERSION=17.0.6"
         self.assertFalse(list(bitbucket.declarations("Dockerfile", text)))
 
+    def test_docker_numeric_stage_copy_identifies_bundled_jdk(self):
+        text = "FROM eclipse-temurin:17.0.6\nFROM debian:stable\nCOPY --from=0 /opt/java/openjdk/ /jdk/"
+        row, = bitbucket.declarations("Dockerfile", text)
+        self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                         (1, "17.0.6", "candidate", "bundled_jdk"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

@@ -7,6 +7,7 @@ import math
 import os
 import re
 import shutil
+import shlex
 import subprocess
 import tempfile
 import time
@@ -203,6 +204,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         setting = SETTING.match(setting_line)
         if setting:
             matches.append((setting["key"], setting["value"]))
+        if dockerfile and setting_line != line:
+            assignments = shlex.split(setting_line, comments=True)
+            for assignment in assignments[1:]:
+                if "=" in assignment and (extra_setting := SETTING.match(assignment)):
+                    matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))

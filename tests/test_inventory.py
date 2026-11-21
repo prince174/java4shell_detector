@@ -253,6 +253,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["version"], row["status"], row["role"]),
                          ("21", "candidate", "bytecode_target"))
 
+    def test_docker_env_reads_later_assignment(self):
+        text = 'FROM debian:stable\nENV APP_MODE=prod JAVA_VERSION="17.0.6" OTHER=21'
+        row, = bitbucket.declarations("Dockerfile", text)
+        self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                         (2, "17.0.6", "candidate", "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

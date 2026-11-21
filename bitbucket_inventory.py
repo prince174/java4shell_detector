@@ -205,7 +205,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         if setting:
             matches.append((setting["key"], setting["value"]))
         if dockerfile and setting_line != line:
-            assignments = shlex.split(setting_line, comments=True)
+            assignments = shlex.split(setting_line.rstrip().removesuffix("\\"), comments=True)
             for assignment in assignments[1:]:
                 if "=" in assignment and (extra_setting := SETTING.match(assignment)):
                     matches.append((extra_setting["key"], extra_setting["value"]))

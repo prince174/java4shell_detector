@@ -47,7 +47,7 @@ GRADLE_JVM_TARGET = re.compile(r"\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JVM_(\d+)(?:_
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
 GRADLE_COMPATIBILITY = re.compile(
-    r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_\d+|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
+    r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_(?:1_[5-8]|\d+)|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
 )
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")
@@ -93,9 +93,9 @@ def version_value(value, java_majors):
         return "", "unknown_version"
     if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)
-    compatibility = re.search(r"\bVERSION_(\d+)\b", cleaned)
+    compatibility = re.search(r"\bVERSION_(1_[5-8]|\d+)\b", cleaned)
     if compatibility:
-        return classify(compatibility[1], java_majors)
+        return classify(compatibility[1].replace("_", "."), java_majors)
     if re.match(r"^\d+(?:$|[.+_-])", cleaned) or NUMERIC_VALUE.search(cleaned):
         return classify(cleaned, java_majors)
     return "", "unknown_version"

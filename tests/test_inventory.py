@@ -304,6 +304,14 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                          [("17", "unknown_version", "bytecode_target"),
                           ("21", "candidate", "bytecode_target")])
 
+    def test_gradle_legacy_java_enum_keeps_version_and_role(self):
+        for text in ("sourceCompatibility = JavaVersion.VERSION_1_8",
+                     "java { targetCompatibility = JavaVersion.VERSION_1_8 }"):
+            with self.subTest(text=text):
+                row, = bitbucket.declarations("build.gradle", text)
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("1.8", "outside_scope", "bytecode_target"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

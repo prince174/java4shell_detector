@@ -247,6 +247,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["version"], row["status"], row["role"]),
                          ("21", "candidate", "bytecode_target"))
 
+    def test_kotlin_jvm_target_from_string(self):
+        row, = bitbucket.declarations("build.gradle.kts",
+                                     'jvmTarget.set(JvmTarget.fromTarget("21"))', (17, 21))
+        self.assertEqual((row["version"], row["status"], row["role"]),
+                         ("21", "candidate", "bytecode_target"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

@@ -265,6 +265,10 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (3, "17.0.6", "candidate", "build_jdk_declaration"))
 
+    def test_docker_legacy_env_value_is_not_another_assignment(self):
+        text = "FROM debian:stable\nENV APP_NOTE JAVA_VERSION=17.0.6"
+        self.assertFalse(list(bitbucket.declarations("Dockerfile", text)))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

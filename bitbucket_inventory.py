@@ -206,9 +206,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             matches.append((setting["key"], setting["value"]))
         if dockerfile and setting_line != line:
             assignments = shlex.split(setting_line.rstrip().removesuffix("\\"), comments=True)
-            for assignment in assignments[1:]:
-                if "=" in assignment and (extra_setting := SETTING.match(assignment)):
-                    matches.append((extra_setting["key"], extra_setting["value"]))
+            if assignments and "=" in assignments[0]:
+                for assignment in assignments[1:]:
+                    if "=" in assignment and (extra_setting := SETTING.match(assignment)):
+                        matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))

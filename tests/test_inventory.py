@@ -285,6 +285,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["version"], row["status"], row["role"]),
                          ("21", "candidate", "bytecode_target"))
 
+    def test_gradle_multiline_release_keeps_line_and_role(self):
+        text = "tasks {\n  options.release.set(\n    21\n  )\n}"
+        row, = bitbucket.declarations("build.gradle.kts", text, (17, 21))
+        self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
+                         (2, "21", "candidate", "bytecode_target"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

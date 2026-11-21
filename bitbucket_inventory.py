@@ -142,9 +142,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             line_number = text.count("\n", 0, match.start()) + 1
             jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):
-        for match in GRADLE_TOOLCHAIN.finditer(text):
-            line_number = text.count("\n", 0, match.start()) + 1
-            gradle_declarations.setdefault(line_number, []).append(("toolchain", match[1]))
+        for key, pattern in (("toolchain", GRADLE_TOOLCHAIN), ("release", GRADLE_RELEASE)):
+            for match in pattern.finditer(text):
+                line_number = text.count("\n", 0, match.start()) + 1
+                gradle_declarations.setdefault(line_number, []).append((key, match[1]))
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
             for key, value in re.findall(r"<([\w.-]+)>\s*([^<]+?)\s*</\1>", block):
@@ -217,7 +218,6 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                            for match in GRADLE_JVM_TARGET.finditer(line))
             matches.extend(("jvmTarget", match[1]) for match in GRADLE_JVM_TARGET_STRING.finditer(line))
-            matches.extend(("release", match[1]) for match in GRADLE_RELEASE.finditer(line))
         if name.endswith(".gradle"):
             matches.extend(("toolchain", match[1]) for match in GRADLE_GROOVY_TOOLCHAIN.finditer(line))
         matches.extend(jenkins_declarations.pop(number, []))

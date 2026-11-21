@@ -192,6 +192,8 @@ class Registry:
         if platform is not None and not isinstance(platform, dict):
             raise ValueError(f"Invalid image platform descriptor for {ref}")
         manifest = json.loads(self.run("manifest", ref, insecure))
+        if not isinstance(manifest, dict):
+            raise ValueError(f"Invalid image manifest JSON for {ref}")
         if "manifests" in manifest:
             for descriptor in manifest["manifests"]:
                 labels = descriptor.get("annotations") or {}

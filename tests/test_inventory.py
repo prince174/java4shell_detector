@@ -608,6 +608,16 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "Invalid image platform descriptor"):
             list(registry.manifests("registry.invalid/image", digest, False, "linux/amd64"))
 
+    def test_manifest_reports_invalid_image_config(self):
+        registry = object.__new__(nexus.Registry)
+        registry.run = lambda command, *args: (
+            b'{"layers":[],"config":{"mediaType":"application/vnd.oci.image.config.v1+json"}}'
+            if command == "manifest" else b"[]"
+        )
+        digest = "sha256:" + "a" * 64
+        with self.assertRaisesRegex(ValueError, "Invalid image configuration"):
+            list(registry.manifests("registry.invalid/image", digest, False))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

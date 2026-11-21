@@ -213,6 +213,8 @@ class Registry:
                 return
             if not platform or platform.get("os") in (None, "unknown") or platform.get("architecture") in (None, "unknown"):
                 platform = json.loads(self.run("config", ref, insecure))
+                if not isinstance(platform, dict):
+                    raise ValueError(f"Invalid image configuration for {ref}")
             os_name, arch = platform.get("os"), platform.get("architecture")
             if not os_name or not arch:
                 raise ValueError(f"Missing image platform for {ref}")

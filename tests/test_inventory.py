@@ -627,6 +627,15 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid image manifest JSON"):
                     list(registry.manifests("registry.invalid/image", digest, False))
 
+    def test_manifest_reports_invalid_index_collection(self):
+        registry = object.__new__(nexus.Registry)
+        digest = "sha256:" + "a" * 64
+        for value in (None, {}, "manifests"):
+            with self.subTest(value=value):
+                registry.run = lambda *args: json.dumps({"manifests": value}).encode()
+                with self.assertRaisesRegex(ValueError, "Invalid platform manifest list"):
+                    list(registry.manifests("registry.invalid/image", digest, False))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

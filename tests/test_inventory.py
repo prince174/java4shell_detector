@@ -730,6 +730,17 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid image platform fields"):
                     list(registry.manifests("registry.invalid/image", digest, False, platform))
 
+    def test_manifest_rejects_invalid_layer_collection(self):
+        registry = object.__new__(nexus.Registry)
+        digest = "sha256:" + "a" * 64
+        for layers in (None, {}, "layers"):
+            with self.subTest(layers=layers):
+                registry.run = lambda *args: json.dumps({
+                    "layers": layers, "config": {"mediaType": "application/vnd.oci.image.config.v1+json"},
+                }).encode()
+                with self.assertRaisesRegex(ValueError, "Invalid image layer list"):
+                    list(registry.manifests("registry.invalid/image", digest, False))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

@@ -223,6 +223,8 @@ class Registry:
                         raise
                     on_error(descriptor.get("digest"), child_platform, exc)
         elif "layers" in manifest and "config" in manifest:
+            if not isinstance(manifest["layers"], list):
+                raise ValueError(f"Invalid image layer list for {ref}")
             if not isinstance(manifest["config"], dict):
                 raise ValueError(f"Invalid image config descriptor for {ref}")
             media_type = manifest["config"].get("mediaType", "")

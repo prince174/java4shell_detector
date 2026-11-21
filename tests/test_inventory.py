@@ -654,6 +654,24 @@ class NexusTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("Invalid platform manifest descriptor", str(errors[0][2]))
 
+    def test_manifest_continues_after_invalid_annotations(self):
+        registry = object.__new__(nexus.Registry)
+        parent, child = ("sha256:" + digit * 64 for digit in ("a", "b"))
+        def run(command, ref, insecure):
+            if ref.endswith(parent):
+                return json.dumps({"manifests": [
+                    {"digest": child, "annotations": ["invalid"]},
+                    {"digest": child, "platform": {"os": "linux", "architecture": "amd64"}},
+                ]}).encode()
+            return b'{"layers":[],"config":{"mediaType":"application/vnd.oci.image.config.v1+json"}}'
+        registry.run = run
+        errors = []
+        self.assertEqual(list(registry.manifests("registry.invalid/image", parent, False,
+                                                on_error=lambda *args: errors.append(args))),
+                         [(child, "linux/amd64")])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("annotations", str(errors[0][2]))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

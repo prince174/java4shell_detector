@@ -46,6 +46,9 @@ GRADLE_GROOVY_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain
 GRADLE_JVM_TARGET = re.compile(r"\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\s*\)")
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
+GRADLE_COMPATIBILITY = re.compile(
+    r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_\d+|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
+)
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")
 
@@ -215,6 +218,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                         matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
+            if not setting:
+                matches.extend(match.groups() for match in GRADLE_COMPATIBILITY.finditer(line))
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                            for match in GRADLE_JVM_TARGET.finditer(line))
             matches.extend(("jvmTarget", match[1]) for match in GRADLE_JVM_TARGET_STRING.finditer(line))

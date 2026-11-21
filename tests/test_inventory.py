@@ -291,6 +291,12 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (2, "21", "candidate", "bytecode_target"))
 
+    def test_gradle_inline_compatibility_keeps_bytecode_role(self):
+        text = "java { sourceCompatibility = JavaVersion.VERSION_21; targetCompatibility = 21 }"
+        rows = list(bitbucket.declarations("build.gradle", text, (17, 21)))
+        self.assertEqual([(row["version"], row["status"], row["role"]) for row in rows],
+                         [("21", "candidate", "bytecode_target")] * 2)
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

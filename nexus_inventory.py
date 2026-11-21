@@ -239,6 +239,9 @@ class Registry:
             os_name, arch = platform.get("os"), platform.get("architecture")
             if not os_name or not arch:
                 raise ValueError(f"Missing image platform for {ref}")
+            if any(key in platform and not isinstance(platform[key], str)
+                   for key in ("os", "architecture", "variant", "os.version")):
+                raise ValueError(f"Invalid image platform fields for {ref}")
             parts = [os_name, arch]
             if platform.get("variant"):
                 parts.append(platform["variant"])
@@ -355,7 +358,7 @@ def inventory(api, registry, args, mappings, workdir):
                         def record_manifest_error(digest, platform, error):
                             descriptor = platform if isinstance(platform, dict) else {}
                             label = "/".join(descriptor[key] for key in ("os", "architecture", "variant")
-                                             if descriptor.get(key))
+                                             if isinstance(descriptor.get(key), str) and descriptor[key])
                             asset = {**location, "index_digest": index_digest, "digest": digest,
                                      "platform": label, "status": "error"}
                             assets.append(asset)

@@ -710,6 +710,16 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "Invalid image config media type"):
                     list(registry.manifests("registry.invalid/image", digest, False))
 
+    def test_manifest_rejects_non_string_platform_fields(self):
+        registry = object.__new__(nexus.Registry)
+        registry.run = lambda *args: b'{"layers":[],"config":{"mediaType":"application/vnd.oci.image.config.v1+json"}}'
+        digest = "sha256:" + "a" * 64
+        for key in ("architecture", "variant", "os.version"):
+            with self.subTest(key=key):
+                platform = {"os": "linux", "architecture": "amd64", key: ["invalid"]}
+                with self.assertRaisesRegex(ValueError, "Invalid image platform fields"):
+                    list(registry.manifests("registry.invalid/image", digest, False, platform))
+
     def test_requested_non_docker_repository_has_distinct_diagnostic(self):
         class NexusApi:
             def json(self, path):

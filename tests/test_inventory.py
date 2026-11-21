@@ -275,6 +275,11 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (1, "17.0.6", "candidate", "bundled_jdk"))
 
+    def test_gradle_java_home_property_selects_build_jdk(self):
+        row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=/opt/jdk-17.0.6\n")
+        self.assertEqual((row["version"], row["status"], row["role"]),
+                         ("17.0.6", "candidate", "build_jdk_declaration"))
+
     def test_gradle_and_ci_jdk_declarations(self):
         content = "java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }"
         row, = bitbucket.declarations("build.gradle.kts", content)

@@ -31,7 +31,7 @@ VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
 SETTING = re.compile(
     r"^\s*(?:-\s*)?(?P<key>java[._-]?(?:version|home)|jdk[._-]?(?:version|home)|"
     r"maven\.compiler\.(?:release|source|target)|sourceCompatibility|targetCompatibility|"
-    r"languageVersion|jvmTarget|jdkVersion|java-version|JAVA_TOOLCHAIN_VERSION)"
+    r"languageVersion|jvmTarget|jdkVersion|java-version|JAVA_TOOLCHAIN_VERSION|org\.gradle\.java\.home)"
     r"(?:\s*[:=]\s*|\s+)(?P<value>[^\s<#]+|.+)", re.I
 )
 XML = re.compile(

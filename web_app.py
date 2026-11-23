@@ -115,7 +115,10 @@ def run_job(source, job, flags):
 def make_flags(source, settings):
     if not isinstance(settings, dict):
         raise ValueError("Настройки опроса должны быть JSON-объектом")
-    delay = float(settings.get("delay", 0.1))
+    try:
+        delay = float(settings.get("delay", 0.1))
+    except (TypeError, ValueError, OverflowError):
+        raise ValueError("Задержка должна быть числом от нуля") from None
     if not math.isfinite(delay) or delay < 0:
         raise ValueError("Задержка должна быть числом от нуля")
     flags = [f"--delay={delay}"]

@@ -1207,6 +1207,26 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_start_api_reports_numeric_delay_overflow_as_bad_request(self):
+        with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            thread.start()
+            try:
+                with patch("web_app.run_job") as scan:
+                    request = Request(f"http://127.0.0.1:{server.server_port}/api/start/nexus",
+                                      data=json.dumps({"delay": 10 ** 400}).encode(),
+                                      headers={"Content-Type": "application/json"})
+                    with self.assertRaises(HTTPError) as raised:
+                        urlopen(request, timeout=5)
+                    with raised.exception as response:
+                        self.assertEqual(response.code, 400)
+                        self.assertEqual(json.load(response), {
+                            "error": "Задержка должна быть числом от нуля"})
+                    scan.assert_not_called()
+            finally:
+                server.shutdown()
+                thread.join()
+
     def test_start_api_rejects_non_object_settings_with_clear_error(self):
         with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
             thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})

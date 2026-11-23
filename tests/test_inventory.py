@@ -518,6 +518,30 @@ class BitbucketTests(unittest.TestCase):
 
 
 class NexusTests(unittest.TestCase):
+    def test_empty_manifest_index_is_a_coverage_error(self):
+        registry = object.__new__(nexus.Registry)
+        digest = "sha256:" + "a" * 64
+        calls = []
+
+        def run(command, *args):
+            calls.append(command)
+            return digest.encode() if command == "digest" else b'{"manifests":[]}'
+
+        registry.run = run
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.object(nexus, "repository_catalog", return_value=[
+                    {"name": "hosted", "format": "docker", "type": "hosted"}]), \
+                    patch.object(nexus, "repository_assets", return_value=[
+                        {"path": "v2/app/manifests/latest"}]):
+                assets, findings, errors = nexus.inventory(
+                    None, registry, argparse.Namespace(discovery="rest", repository=[], include_proxy=False),
+                    {"hosted": "registry.example:5000"}, directory)
+        self.assertEqual(calls, ["digest", "manifest"])
+        self.assertEqual((len(assets), findings, len(errors)), (1, [], 1))
+        self.assertEqual(assets[0]["status"], "error")
+        self.assertIn("No platform manifests in image index", errors[0]["error"])
+        self.assertEqual(errors[0]["image"], "app")
+
     def test_invalid_repository_catalog_reports_cause_before_browse(self):
         for catalog in ({"error": "denied"}, None, [None],
                         [{"name": ["hosted"], "format": "docker", "type": "hosted"}],

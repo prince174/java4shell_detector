@@ -197,6 +197,8 @@ class Registry:
         if "manifests" in manifest:
             if not isinstance(manifest["manifests"], list):
                 raise ValueError(f"Invalid platform manifest list for {ref}")
+            if not manifest["manifests"]:
+                raise ValueError(f"No platform manifests in image index for {ref}")
             for descriptor in manifest["manifests"]:
                 if not isinstance(descriptor, dict):
                     error = ValueError(f"Invalid platform manifest descriptor for {ref}")

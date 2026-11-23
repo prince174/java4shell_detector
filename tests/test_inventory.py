@@ -191,6 +191,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 rows = list(bitbucket.declarations("build.yml", text, (17, 21)))
                 self.assertFalse(any(row["status"] == "candidate" for row in rows))
 
+    def test_yaml_java_lists_accept_quoted_keys(self):
+        for key in ('"java-version"', "'java-version'"):
+            for values in ('[17.0.5, "17.0.6", 21]', '\n  - 17.0.5\n  - "17.0.6"\n  - 21'):
+                with self.subTest(key=key, values=values):
+                    rows = list(bitbucket.declarations("ci.yml", f"{key}: {values}", (17, 21)))
+                    self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                      for row in rows],
+                                     [("17.0.5", "outside_scope", "build_jdk_declaration", 1),
+                                      ("17.0.6", "candidate", "build_jdk_declaration", 1),
+                                      ("21", "candidate", "build_jdk_declaration", 1)])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

@@ -157,7 +157,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     if name.endswith((".yaml", ".yml")):
         for match in YAML_JAVA_LIST.finditer(text):
             values = re.sub(r"#[^\r\n]*", "", match[1])
-            items = [YAML_VERSION_ITEM.fullmatch(item.strip()) for item in values.split(",")]
+            parts = values.split(",")
+            if not parts[-1].strip():
+                parts.pop()
+            items = [YAML_VERSION_ITEM.fullmatch(item.strip()) for item in parts]
             if items and all(items):
                 line_number = text.count("\n", 0, match.start()) + 1
                 yaml_declarations[line_number] = [next(value for value in item.groups() if value)

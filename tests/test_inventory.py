@@ -177,6 +177,20 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                                   ("17.0.6", "candidate", "build_jdk_declaration", 2),
                                   ("21", "candidate", "build_jdk_declaration", 2)])
 
+    def test_yaml_java_list_accepts_trailing_comma_but_not_empty_items(self):
+        for text in ('java-version: [17.0.6, "21",]',
+                     'java-version: [\n  17.0.6,\n  "21", # final version\n]'):
+            with self.subTest(text=text):
+                rows = list(bitbucket.declarations("build.yml", text, (17, 21)))
+                self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                  for row in rows],
+                                 [("17.0.6", "candidate", "build_jdk_declaration", 1),
+                                  ("21", "candidate", "build_jdk_declaration", 1)])
+        for text in ('java-version: []', 'java-version: [17.0.6,,21]'):
+            with self.subTest(text=text):
+                rows = list(bitbucket.declarations("build.yml", text, (17, 21)))
+                self.assertFalse(any(row["status"] == "candidate" for row in rows))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

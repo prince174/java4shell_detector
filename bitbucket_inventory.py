@@ -162,6 +162,25 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 line_number = text.count("\n", 0, match.start()) + 1
                 yaml_declarations[line_number] = [next(value for value in item.groups() if value)
                                                   for item in items]
+        for index, line in enumerate(lines):
+            header = re.fullmatch(r"([ \t]*)java-version[ \t]*:[ \t]*(?:#.*)?", line, re.I)
+            if not header:
+                continue
+            values = []
+            for entry in lines[index + 1:]:
+                content = entry.partition("#")[0].rstrip()
+                if not content.strip():
+                    continue
+                item = re.fullmatch(r"([ \t]*)-[ \t]+(.+)", content)
+                if not item or len(item[1]) < len(header[1]):
+                    break
+                version = YAML_VERSION_ITEM.fullmatch(item[2].strip())
+                if not version:
+                    values = []
+                    break
+                values.append(next(value for value in version.groups() if value))
+            if values:
+                yaml_declarations[index + 1] = values
     if name.startswith("jenkinsfile"):
         for match in JENKINS_JDK.finditer(text):
             line_number = text.count("\n", 0, match.start()) + 1

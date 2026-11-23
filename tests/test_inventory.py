@@ -164,6 +164,19 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                                   ("17.0.6", "candidate", "build_jdk_declaration", 2),
                                   ("21", "candidate", "build_jdk_declaration", 2)])
 
+    def test_yaml_block_java_versions_stop_at_next_field(self):
+        for indent in ("", "  "):
+            text = ('matrix:\n  java-version: # JDK matrix\n'
+                    f'{indent}  - 17.0.5\n\n  # active JDKs\n{indent}  - "17.0.6"\n'
+                    f"{indent}  - '21'\n  other:\n    - 25\n")
+            with self.subTest(indent=indent):
+                rows = list(bitbucket.declarations("build.yml", text, (17, 21, 25)))
+                self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                  for row in rows],
+                                 [("17.0.5", "outside_scope", "build_jdk_declaration", 2),
+                                  ("17.0.6", "candidate", "build_jdk_declaration", 2),
+                                  ("21", "candidate", "build_jdk_declaration", 2)])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

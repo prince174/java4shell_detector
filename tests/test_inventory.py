@@ -140,6 +140,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                                  (1, "17.0.6", "candidate", role))
 
+    def test_yaml_inline_java_versions_preserve_threshold_and_role(self):
+        for path in ("build.yml", "build.yaml"):
+            with self.subTest(path=path):
+                rows = list(bitbucket.declarations(path,
+                    '\n  java-version: [17.0.5, 17.0.6, "21", \'11\'] # build matrix', (17, 21)))
+                self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                  for row in rows],
+                                 [("17.0.5", "outside_scope", "build_jdk_declaration", 2),
+                                  ("17.0.6", "candidate", "build_jdk_declaration", 2),
+                                  ("21", "candidate", "build_jdk_declaration", 2),
+                                  ("11", "outside_scope", "build_jdk_declaration", 2)])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

@@ -45,7 +45,7 @@ GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\
 GRADLE_GROOVY_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s+(\d+)\b")
 GRADLE_JVM_TARGET = re.compile(r"\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\s*\)")
 GRADLE_JVM_TARGET_ASSIGNMENT = re.compile(
-    r"\bjvmTarget\s*=\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\b"
+    r"""\bjvmTarget\s*=\s*(?:(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\b|"([\d.]+)"|'([\d.]+)')"""
 )
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")

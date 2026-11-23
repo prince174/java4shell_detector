@@ -463,6 +463,28 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_malformed_repository_entries_are_reported_before_clone(self):
+        for provider in ("cloud", "datacenter"):
+            for repo in (None, {}, {"slug": ["repo"]}, {"slug": " "},
+                         {"slug": "repo", "project": "TEST"}):
+                with self.subTest(provider=provider, repo=repo):
+                    catalog = "cloud_pages" if provider == "cloud" else "paged"
+                    with patch.object(bitbucket, catalog, return_value=[repo]), \
+                            patch.object(bitbucket, "scan_repository") as scan:
+                        assets, findings, errors = bitbucket.inventory(None, bb_args(provider=provider))
+                    self.assertEqual((assets, findings, len(errors)), ([], [], 1))
+                    self.assertEqual(errors[0]["stage"], "list_repositories")
+                    self.assertIn("Invalid Bitbucket repository entry at index 0", errors[0]["error"])
+                    scan.assert_not_called()
+        for project in (None, {}, {"key": []}, {"key": " "}):
+            with self.subTest(project=project):
+                with patch.object(bitbucket, "paged", return_value=[{"slug": "repo", "project": project}]), \
+                        patch.object(bitbucket, "scan_repository") as scan:
+                    assets, findings, errors = bitbucket.inventory(None, bb_args())
+                self.assertEqual((assets, findings, len(errors)), ([], [], 1))
+                self.assertIn("Invalid Bitbucket Data Center project key", errors[0]["error"])
+                scan.assert_not_called()
+
     def test_cloud_rejects_malformed_pages_before_yielding_rows(self):
         for page in (None, {"values": {}}, {"values": [{"slug": "repo"}], "next": 0},
                      {"values": [{"slug": "repo"}], "next": False},

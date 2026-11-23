@@ -450,8 +450,14 @@ def inventory(api, args):
             catalog = cloud_pages(api, route + "?pagelen=100")
         else:
             catalog = paged(api, API_ROOT + "/repos")
-        for repo in catalog:
+        for index, repo in enumerate(catalog):
+            if (not isinstance(repo, dict) or not isinstance(repo.get("slug"), str)
+                    or not repo["slug"].strip()
+                    or repo.get("project") is not None and not isinstance(repo["project"], dict)):
+                raise ValueError(f"Invalid Bitbucket repository entry at index {index}")
             project = (repo.get("project") or {}).get("key")
+            if not cloud and (not isinstance(project, str) or not project.strip()):
+                raise ValueError(f"Invalid Bitbucket Data Center project key at repository index {index}")
             slug = repo["slug"]
             if args.project and project not in args.project:
                 continue

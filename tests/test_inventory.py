@@ -253,6 +253,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["version"], row["status"], row["role"]),
                          ("21", "candidate", "bytecode_target"))
 
+    def test_kotlin_jvm_target_enum_assignment(self):
+        for expression, version, status in (
+                ("jvmTarget = JvmTarget.JVM_21", "21", "candidate"),
+                ("compilerOptions { jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_21 }",
+                 "21", "candidate"),
+                ("jvmTarget = JvmTarget.JVM_1_8", "1.8", "outside_scope")):
+            with self.subTest(expression=expression):
+                row, = bitbucket.declarations("build.gradle.kts", expression, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 (version, status, "bytecode_target", 1))
+
     def test_docker_env_reads_later_assignment(self):
         text = 'FROM debian:stable\nENV APP_MODE=prod JAVA_VERSION="17.0.6" OTHER=21'
         row, = bitbucket.declarations("Dockerfile", text)

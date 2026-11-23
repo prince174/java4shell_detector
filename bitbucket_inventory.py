@@ -44,6 +44,9 @@ IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\s*([^(),]+)\s*\)")
 GRADLE_GROOVY_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s+(\d+)\b")
 GRADLE_JVM_TARGET = re.compile(r"\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\s*\)")
+GRADLE_JVM_TARGET_ASSIGNMENT = re.compile(
+    r"\bjvmTarget\s*=\s*(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\b"
+)
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
 GRADLE_COMPATIBILITY = re.compile(
@@ -218,6 +221,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                         matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
+            jvm_assignments = list(GRADLE_JVM_TARGET_ASSIGNMENT.finditer(line))
+            if jvm_assignments:
+                matches = [(key, value) for key, value in matches if key.lower() != "jvmtarget"]
+                matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
+                               for match in jvm_assignments)
             compatibility = [match.groups() for match in GRADLE_COMPATIBILITY.finditer(line)]
             if compatibility:
                 matches = [(key, value) for key, value in matches

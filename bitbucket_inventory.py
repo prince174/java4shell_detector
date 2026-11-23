@@ -41,7 +41,7 @@ XML = re.compile(
 ARG = re.compile(r"^\s*ARG\s+(\w+)(?:\s*=\s*(\S+))?", re.I)
 FROM = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", re.I)
 IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"]+)""", re.I)
-YAML_JAVA_LIST = re.compile(r"^\s*(?:-\s*)?java-version\s*:\s*\[([^\]\r\n]*)\]", re.I)
+YAML_JAVA_LIST = re.compile(r"^[ \t]*(?:-[ \t]*)?java-version[ \t]*:[ \t]*\[([^\]]*)\]", re.I | re.M)
 YAML_VERSION_ITEM = re.compile(r'''(?:"([\d][\w.+-]*)"|'([\d][\w.+-]*)'|([\d][\w.+-]*))''')
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\s*([^(),]+)\s*\)")
 GRADLE_GROOVY_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s+(\d+)\b")
@@ -153,6 +153,15 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     xml_declarations = {}
     gradle_declarations = {}
     jenkins_declarations = {}
+    yaml_declarations = {}
+    if name.endswith((".yaml", ".yml")):
+        for match in YAML_JAVA_LIST.finditer(text):
+            values = re.sub(r"#[^\r\n]*", "", match[1])
+            items = [YAML_VERSION_ITEM.fullmatch(item.strip()) for item in values.split(",")]
+            if items and all(items):
+                line_number = text.count("\n", 0, match.start()) + 1
+                yaml_declarations[line_number] = [next(value for value in item.groups() if value)
+                                                  for item in items]
     if name.startswith("jenkinsfile"):
         for match in JENKINS_JDK.finditer(text):
             line_number = text.count("\n", 0, match.start()) + 1
@@ -224,13 +233,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         setting = SETTING.match(setting_line)
         if setting:
             matches.append((setting["key"], setting["value"]))
-        java_list = YAML_JAVA_LIST.match(line) if name.endswith((".yaml", ".yml")) else None
-        if java_list:
-            items = [YAML_VERSION_ITEM.fullmatch(item.strip()) for item in java_list[1].split(",")]
-            if items and all(items):
-                matches = [(key, value) for key, value in matches if key.lower() != "java-version"]
-                matches.extend(("java-version", next(value for value in item.groups() if value))
-                               for item in items)
+        yaml_values = yaml_declarations.pop(number, [])
+        if yaml_values:
+            matches = [(key, value) for key, value in matches if key.lower() != "java-version"]
+            matches.extend(("java-version", value) for value in yaml_values)
         if dockerfile and setting_line != line:
             assignments = shlex.split(setting_line.rstrip().removesuffix("\\"), comments=True)
             if assignments and "=" in assignments[0]:

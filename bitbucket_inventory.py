@@ -257,6 +257,12 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         if setting:
             matches.append((setting["key"], setting["value"]))
         yaml_values = yaml_declarations.pop(number, [])
+        if not yaml_values and name.endswith((".yaml", ".yml")):
+            scalar = re.match(rf"^[ \t]*(?:-[ \t]*)?{YAML_JAVA_KEY}[ \t]*:[ \t]*(.+)$", line, re.I)
+            if scalar:
+                value = YAML_VERSION_ITEM.fullmatch(scalar[1].partition("#")[0].strip())
+                if value:
+                    yaml_values = [next(part for part in value.groups() if part)]
         if yaml_values:
             matches = [(key, value) for key, value in matches if key.lower() != "java-version"]
             matches.extend(("java-version", value) for value in yaml_values)

@@ -130,7 +130,7 @@ def copied_jdk_stages(lines):
 
 def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     name = PurePosixPath(path).name.lower()
-    if name.endswith((".gradle", ".gradle.kts")):
+    if name.endswith((".gradle", ".gradle.kts")) or name.startswith("jenkinsfile"):
         # Retain strings (including URLs), and keep comment offsets/line numbers stable.
         text = re.sub(
             r'''(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<comment>//[^\r\n]*|/\*.*?(?:\*/|\Z))''',

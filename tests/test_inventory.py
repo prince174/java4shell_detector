@@ -241,6 +241,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (2, "17.0.6", "candidate", "build_jdk_declaration"))
 
+    def test_jenkins_comments_do_not_create_jdk_candidates(self):
+        text = ('/*\ntools { jdk "jdk-21" }\n*/\n'
+                'echo "https://nexus.invalid"; tools { /* jdk "jdk-25" */ jdk "jdk-17.0.6" } '
+                '// jdk "jdk-27"\n')
+        for path in ("Jenkinsfile", "ci/Jenkinsfile.release"):
+            with self.subTest(path=path):
+                row, = bitbucket.declarations(path, text, (17, 21, 25, 27))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 ("17.0.6", "candidate", "build_jdk_declaration", 4))
+
     def test_kotlin_compiler_options_jvm_target_keeps_bytecode_role(self):
         text = "compilerOptions { jvmTarget.set(JvmTarget.JVM_21) }"
         row, = bitbucket.declarations("build.gradle.kts", text, (17, 21))

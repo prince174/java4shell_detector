@@ -462,6 +462,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_datacenter_rejects_malformed_pagination_before_yielding_rows(self):
+        valid = {"values": [{"slug": "repo"}], "isLastPage": False, "nextPageStart": 1}
+        for page in (None, {**valid, "values": {}}, {**valid, "isLastPage": "false"},
+                     {**valid, "nextPageStart": "1"}, {**valid, "nextPageStart": True},
+                     {**valid, "nextPageStart": -1}):
+            with self.subTest(page=page):
+                class FixtureApi:
+                    def json(self, *args):
+                        return page
+                with self.assertRaisesRegex(ValueError, "Invalid Bitbucket Data Center.*start=0"):
+                    next(bitbucket.paged(FixtureApi(), "/rest/api/latest/repos"))
+
     @staticmethod
     def git(repo, *command):
         return subprocess.check_output(

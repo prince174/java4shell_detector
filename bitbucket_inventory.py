@@ -66,6 +66,12 @@ def paged(api, path, **params):
     while start not in seen:
         seen.add(start)
         page = api.json(path, {**params, "start": start, "limit": 200})
+        if (not isinstance(page, dict) or not isinstance(page.get("values"), list)
+                or type(page.get("isLastPage")) is not bool):
+            raise ValueError(f"Invalid Bitbucket Data Center page at {path}, start={start}")
+        if not page["isLastPage"] and (
+                type(page.get("nextPageStart")) is not int or page["nextPageStart"] < 0):
+            raise ValueError(f"Invalid Bitbucket Data Center next page cursor at {path}, start={start}")
         yield from page["values"]
         if page["isLastPage"]:
             return

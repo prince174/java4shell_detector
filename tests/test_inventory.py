@@ -15,7 +15,8 @@ import time
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlsplit
-from urllib.error import URLError
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from unittest.mock import patch
 
 import bitbucket_inventory as bitbucket
@@ -24,7 +25,7 @@ from inventory_common import (
     Api, ApiHttpError, ApiTimeoutError, JAVA4SHELL_MAJORS, classify, java4shell_result,
     parse_java_majors, write_reports,
 )
-from web_app import diagnostic, make_flags, results_page, run_job, stats, update_stats
+from web_app import Handler as WebHandler, diagnostic, make_flags, results_page, run_job, stats, update_stats
 
 
 VERSIONS = {
@@ -1206,6 +1207,28 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_start_api_rejects_non_object_settings_with_clear_error(self):
+        with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            thread.start()
+            try:
+                with patch("web_app.run_job") as scan:
+                    for settings in (None, [], "settings", 42):
+                        with self.subTest(settings=settings):
+                            request = Request(f"http://127.0.0.1:{server.server_port}/api/start/nexus",
+                                              data=json.dumps(settings).encode(),
+                                              headers={"Content-Type": "application/json"})
+                            with self.assertRaises(HTTPError) as raised:
+                                urlopen(request, timeout=5)
+                            with raised.exception as response:
+                                self.assertEqual(response.code, 400)
+                                self.assertEqual(json.load(response), {
+                                    "error": "Настройки опроса должны быть JSON-объектом"})
+                    scan.assert_not_called()
+            finally:
+                server.shutdown()
+                thread.join()
+
     def test_debug_logs_every_operation_without_url_parameters(self):
         job = {"id": "fixture", "started": time.monotonic(), "http": stats(), "registry": stats(),
                "messages": [], "diagnostics": [], "provider": "nexus", "debug": True}

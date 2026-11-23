@@ -274,6 +274,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  (version, status, "bytecode_target", 1))
 
+    def test_gradle_release_assignment_preserves_role_and_line(self):
+        for path in ("build.gradle", "build.gradle.kts"):
+            for text, line in (("tasks.withType(JavaCompile) { options.release = 21 }", 1),
+                               ("options.release =\n    21", 1),
+                               ("// options.release = 25\noptions.release = 21", 2)):
+                with self.subTest(path=path, text=text):
+                    row, = bitbucket.declarations(path, text, (17, 21, 25))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     ("21", "candidate", "bytecode_target", line))
+
     def test_kotlin_inline_string_jvm_target(self):
         for path in ("build.gradle", "build.gradle.kts"):
             for declaration, version, status in (

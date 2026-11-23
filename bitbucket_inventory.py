@@ -49,6 +49,7 @@ GRADLE_JVM_TARGET_ASSIGNMENT = re.compile(
 )
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
+GRADLE_RELEASE_ASSIGNMENT = re.compile(r"\boptions\.release\s*=\s*(\d+)\b")
 GRADLE_COMPATIBILITY = re.compile(
     r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_(?:1_[5-8]|\d+)|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
 )
@@ -155,7 +156,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             line_number = text.count("\n", 0, match.start()) + 1
             jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):
-        for key, pattern in (("toolchain", GRADLE_TOOLCHAIN), ("release", GRADLE_RELEASE)):
+        for key, pattern in (("toolchain", GRADLE_TOOLCHAIN), ("release", GRADLE_RELEASE),
+                             ("release", GRADLE_RELEASE_ASSIGNMENT)):
             for match in pattern.finditer(text):
                 line_number = text.count("\n", 0, match.start()) + 1
                 gradle_declarations.setdefault(line_number, []).append((key, match[1]))

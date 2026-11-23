@@ -474,6 +474,22 @@ class BitbucketTests(unittest.TestCase):
 
 
 class NexusTests(unittest.TestCase):
+    def test_invalid_repository_catalog_reports_cause_before_browse(self):
+        for catalog in ({"error": "denied"}, None, [None],
+                        [{"name": ["hosted"], "format": "docker", "type": "hosted"}],
+                        [{"name": "hosted", "format": "docker"}],
+                        [{"name": " ", "format": "docker", "type": "hosted"}]):
+            with self.subTest(catalog=catalog), tempfile.TemporaryDirectory() as directory:
+                with patch.object(nexus, "repository_catalog", return_value=catalog), \
+                        patch.object(nexus, "repository_assets") as browse:
+                    assets, findings, errors = nexus.inventory(
+                        None, None, argparse.Namespace(discovery="rest"), {}, directory)
+                self.assertEqual((assets, findings), ([], []))
+                self.assertEqual(len(errors), 1)
+                self.assertEqual(errors[0]["stage"], "list_repositories")
+                self.assertIn("Nexus repository catalog", errors[0]["error"])
+                browse.assert_not_called()
+
     def test_api_timeouts_are_distinct_from_connection_errors(self):
         api = Api("https://nexus.invalid", None, 1)
         for failure in (TimeoutError("read deadline"), URLError(TimeoutError("connect deadline"))):

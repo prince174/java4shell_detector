@@ -313,6 +313,13 @@ def inventory(api, registry, args, mappings, workdir):
     try:
         discovery = args.discovery
         catalog = repository_catalog(api, discovery)
+        if not isinstance(catalog, list):
+            raise ValueError("Nexus repository catalog must be a JSON array")
+        for position, repo in enumerate(catalog):
+            if (not isinstance(repo, dict) or any(
+                    not isinstance(repo.get(key), str) or not repo[key].strip()
+                    for key in ("name", "format", "type"))):
+                raise ValueError(f"Nexus repository catalog has an invalid entry at index {position}")
         repositories = {repo["name"]: repo for repo in catalog}
         requested = set(args.repository) if args.repository else {
             name for name, repo in repositories.items() if repo["format"] == "docker" and repo["type"] in

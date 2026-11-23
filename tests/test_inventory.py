@@ -462,6 +462,19 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_cloud_rejects_malformed_pages_before_yielding_rows(self):
+        for page in (None, {"values": {}}, {"values": [{"slug": "repo"}], "next": 0},
+                     {"values": [{"slug": "repo"}], "next": False},
+                     {"values": [{"slug": "repo"}], "next": []}):
+            with self.subTest(page=page):
+                class FixtureApi:
+                    base = "https://api.bitbucket.org/2.0"
+
+                    def json(self, *args):
+                        return page
+                with self.assertRaisesRegex(ValueError, "Invalid Bitbucket Cloud"):
+                    next(bitbucket.cloud_pages(FixtureApi(), "/repositories/test"))
+
     def test_datacenter_rejects_malformed_pagination_before_yielding_rows(self):
         valid = {"values": [{"slug": "repo"}], "isLastPage": False, "nextPageStart": 1}
         for page in (None, {**valid, "values": {}}, {**valid, "isLastPage": "false"},

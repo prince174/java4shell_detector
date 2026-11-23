@@ -320,10 +320,14 @@ def cloud_pages(api, path):
     while path and path not in seen:
         seen.add(path)
         page = api.json(path)
-        yield from page["values"]
+        if not isinstance(page, dict) or not isinstance(page.get("values"), list):
+            raise ValueError("Invalid Bitbucket Cloud page: expected a values array")
         following = page.get("next")
+        if following is not None and not isinstance(following, str):
+            raise ValueError("Invalid Bitbucket Cloud next page URL")
         if following and not following.startswith(api.base + "/"):
             raise ValueError("Cloud pagination attempted to leave the configured API")
+        yield from page["values"]
         path = following[len(api.base):] if following else None
     if path:
         raise ValueError("Repeated Bitbucket Cloud page")

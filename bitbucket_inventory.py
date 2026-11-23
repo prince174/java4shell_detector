@@ -130,6 +130,13 @@ def copied_jdk_stages(lines):
 
 def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     name = PurePosixPath(path).name.lower()
+    if name.endswith((".gradle", ".gradle.kts")):
+        # Retain strings (including URLs), and keep comment offsets/line numbers stable.
+        text = re.sub(
+            r'''(?P<string>"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')|(?P<comment>//[^\r\n]*|/\*.*?(?:\*/|\Z))''',
+            lambda match: match[0] if match["string"] is not None else
+            re.sub(r"[^\r\n]", " ", match[0]), text, flags=re.S,
+        )
     if name == "pom.xml":
         text = text.replace("\r\n", "\n").replace("\r", "\n")
         text = re.sub(r"<!--.*?(?:-->|\Z)", lambda comment: "\n" * comment[0].count("\n"), text, flags=re.S)

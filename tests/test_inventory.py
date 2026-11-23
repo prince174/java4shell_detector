@@ -275,6 +275,20 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                      (version, status, "bytecode_target", 2))
 
+    def test_gradle_comments_do_not_create_candidates_or_shift_lines(self):
+        text = ('/*\njava { toolchain { languageVersion = JavaLanguageVersion.of(21) } }\n*/\n'
+                'repositories { maven { url = "https://nexus.invalid/repository/public/" } }\n'
+                'java { /* sourceCompatibility = 21 */ targetCompatibility = "11" } '
+                '// jvmToolchain(21)\n'
+                'jvmToolchain(\n  21\n)\n')
+        for path in ("build.gradle", "build.gradle.kts"):
+            with self.subTest(path=path):
+                rows = list(bitbucket.declarations(path, text, (17, 21)))
+                self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                  for row in rows],
+                                 [("11", "outside_scope", "bytecode_target", 5),
+                                  ("21", "candidate", "build_jdk_declaration", 6)])
+
     def test_docker_env_reads_later_assignment(self):
         text = 'FROM debian:stable\nENV APP_MODE=prod JAVA_VERSION="17.0.6" OTHER=21'
         row, = bitbucket.declarations("Dockerfile", text)

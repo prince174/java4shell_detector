@@ -461,6 +461,14 @@ def inventory(api, args):
             slug = repo["slug"]
             if args.project and project not in args.project:
                 continue
+            default = None
+            if cloud:
+                branch = repo.get("mainbranch")
+                if branch is not None and not isinstance(branch, dict):
+                    raise ValueError(f"Invalid Bitbucket Cloud mainbranch at repository index {index}")
+                default = branch.get("name") if branch is not None else None
+                if default is not None and (not isinstance(default, str) or not default.strip()):
+                    raise ValueError(f"Invalid Bitbucket Cloud mainbranch name at repository index {index}")
             owner = args.workspace if cloud else project
             repository = f"{owner}/{slug}"
             if repository in seen_repositories:
@@ -473,10 +481,8 @@ def inventory(api, args):
             safe_slug = quote(slug, safe="")
             if cloud:
                 url = f"https://bitbucket.org/{safe_owner}/{safe_slug}.git"
-                default = (repo.get("mainbranch") or {}).get("name")
             else:
                 url = f"{api.base}/scm/{safe_owner}/{safe_slug}.git"
-                default = None
             scan_repository(args, url, default, asset, findings, errors)
     except ERRORS as exc:
         errors.append({"stage": "list_repositories", "error": str(exc)})

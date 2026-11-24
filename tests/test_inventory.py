@@ -463,6 +463,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_cloud_invalid_mainbranch_is_reported_before_clone(self):
+        for branch in ("main", [], False, {"name": []}, {"name": " "}, {"name": 1}):
+            with self.subTest(branch=branch):
+                with patch.object(bitbucket, "cloud_pages", return_value=[
+                        {"slug": "repo", "mainbranch": branch}]), \
+                        patch.object(bitbucket, "scan_repository") as scan:
+                    assets, findings, errors = bitbucket.inventory(None, bb_args(provider="cloud"))
+                self.assertEqual((assets, findings, len(errors)), ([], [], 1))
+                self.assertEqual(errors[0]["stage"], "list_repositories")
+                self.assertIn("Invalid Bitbucket Cloud mainbranch", errors[0]["error"])
+                scan.assert_not_called()
+
     def test_malformed_repository_entries_are_reported_before_clone(self):
         for provider in ("cloud", "datacenter"):
             for repo in (None, {}, {"slug": ["repo"]}, {"slug": " "},

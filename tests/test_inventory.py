@@ -435,6 +435,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  (version, status, "build_jdk_declaration"))
 
+    def test_macos_jdk_bundle_suffix_does_not_hide_version(self):
+        for bundle, version, status in (("jdk-17.0.6.jdk", "17.0.6", "candidate"),
+                                         ("jdk-17.0.5.jdk", "17.0.5", "outside_scope"),
+                                         ("temurin-21.0.1.JDK", "21.0.1", "candidate")):
+            with self.subTest(bundle=bundle):
+                text = f"JAVA_HOME: /Library/Java/JavaVirtualMachines/{bundle}/Contents/Home"
+                row, = bitbucket.declarations("build.yml", text, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (version, status, "build_jdk_declaration"))
+
     def test_gradle_java_home_property_selects_build_jdk(self):
         row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=/opt/jdk-17.0.6\n")
         self.assertEqual((row["version"], row["status"], row["role"]),

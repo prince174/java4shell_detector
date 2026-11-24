@@ -107,7 +107,8 @@ def version_value(value, java_majors):
         return "", "unknown_version"
     named_jdk = JAVA_PATH_VERSION.search(cleaned)
     if named_jdk:
-        return classify(named_jdk[1], java_majors)
+        version = re.sub(r"\.jdk$", "", named_jdk[1], flags=re.I)
+        return classify(version, java_majors)
     if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)
     compatibility = re.search(r"\bVERSION_(1_[5-8]|\d+)\b", cleaned)

@@ -145,8 +145,12 @@ def make_flags(source, settings):
         for item in value.split(","):
             if item.strip():
                 flags.append(f"--{option}={item.strip()}")
-    if source == "nexus" and settings.get("includeProxy") is True:
-        flags.append("--include-proxy")
+    if source == "nexus":
+        include_proxy = settings.get("includeProxy", False)
+        if not isinstance(include_proxy, bool):
+            raise ValueError("Поле includeProxy должно быть логическим значением true или false")
+        if include_proxy:
+            flags.append("--include-proxy")
     return flags
 
 

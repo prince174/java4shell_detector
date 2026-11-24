@@ -1272,6 +1272,31 @@ class NexusTests(unittest.TestCase):
 
 
 class ConsoleTests(unittest.TestCase):
+    def test_start_api_rejects_non_boolean_proxy_flag(self):
+        with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
+            thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})
+            thread.start()
+            try:
+                with patch("web_app.run_job") as scan:
+                    for value in ("true", "false", None, 0, 1):
+                        with self.subTest(value=value):
+                            request = Request(f"http://127.0.0.1:{server.server_port}/api/start/nexus",
+                                              data=json.dumps({"includeProxy": value}).encode(),
+                                              headers={"Content-Type": "application/json"})
+                            with self.assertRaises(HTTPError) as raised:
+                                urlopen(request, timeout=5)
+                            with raised.exception as response:
+                                self.assertEqual(response.code, 400)
+                                self.assertEqual(json.load(response), {
+                                    "error": "Поле includeProxy должно быть логическим значением true или false"})
+                    scan.assert_not_called()
+            finally:
+                server.shutdown()
+                thread.join()
+        self.assertIn("--include-proxy", make_flags("nexus", {"includeProxy": True}))
+        self.assertNotIn("--include-proxy", make_flags("nexus", {"includeProxy": False}))
+        self.assertNotIn("--include-proxy", make_flags("nexus", {}))
+
     def test_start_api_explains_invalid_filter_types_without_starting_scan(self):
         with ThreadingHTTPServer(("127.0.0.1", 0), WebHandler) as server:
             thread = threading.Thread(target=server.serve_forever, kwargs={"poll_interval": 0.01})

@@ -27,6 +27,7 @@ TEMURIN_IMAGE = re.compile(r"(?:^|/)eclipse-temurin(?=[:@]|$)", re.I)
 COPY_OPTIONS = re.compile(r"^\s*COPY\s+((?:--\S+\s+)+)(.+)$", re.I)
 JDK_DIRECTORY = re.compile(r"[^\r\n]*/(?:jdk|openjdk|jre)/?", re.I)
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
+JAVA_PATH_VERSION = re.compile(rf"(?:^|[/\\]){JAVA}[_.-]?([0-9][A-Za-z0-9._+\-]*)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
 SETTING = re.compile(
     r"^\s*(?:-\s*)?(?P<key>java[._-]?(?:version|home)|jdk[._-]?(?:version|home)|"
@@ -104,6 +105,9 @@ def version_value(value, java_majors):
     cleaned = value.strip().strip("'\"")
     if VARIABLE.search(cleaned) or "{{" in cleaned:
         return "", "unknown_version"
+    named_jdk = JAVA_PATH_VERSION.search(cleaned)
+    if named_jdk:
+        return classify(named_jdk[1], java_majors)
     if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)
     compatibility = re.search(r"\bVERSION_(1_[5-8]|\d+)\b", cleaned)

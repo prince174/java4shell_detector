@@ -414,6 +414,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
         self.assertEqual((row["line"], row["version"], row["status"], row["role"]),
                          (1, "17.0.6", "candidate", "bundled_jdk"))
 
+    def test_java_home_prefers_named_jdk_over_numeric_parent_directory(self):
+        for path, text, version, status in (
+                ("gradle.properties", "org.gradle.java.home=/opt/8/jdk-17.0.6", "17.0.6", "candidate"),
+                ("build.yml", "JAVA_HOME: /opt/21/jdk-17.0.5", "17.0.5", "outside_scope"),
+                ("gradle.properties", r"org.gradle.java.home=C:\tools\8\jdk-17.0.6", "17.0.6", "candidate")):
+            with self.subTest(path=path, text=text):
+                row, = bitbucket.declarations(path, text, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (version, status, "build_jdk_declaration"))
+
     def test_gradle_java_home_property_selects_build_jdk(self):
         row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=/opt/jdk-17.0.6\n")
         self.assertEqual((row["version"], row["status"], row["role"]),

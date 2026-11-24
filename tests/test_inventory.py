@@ -424,6 +424,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  (version, status, "build_jdk_declaration"))
 
+    def test_quoted_java_home_with_spaces_keeps_full_path(self):
+        for path, text, version, status in (
+                ("build.yml", 'JAVA_HOME: "/opt/build tools/8/jdk-17.0.6"', "17.0.6", "candidate"),
+                ("build.yml", "JAVA_HOME: '/opt/build tools/21/jdk-17.0.5'", "17.0.5", "outside_scope"),
+                ("Dockerfile", 'FROM debian:stable\nENV JAVA_HOME="/opt/build tools/8/jdk-17.0.6" APP_MODE=prod',
+                 "17.0.6", "candidate")):
+            with self.subTest(path=path, text=text):
+                row, = bitbucket.declarations(path, text, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (version, status, "build_jdk_declaration"))
+
     def test_gradle_java_home_property_selects_build_jdk(self):
         row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=/opt/jdk-17.0.6\n")
         self.assertEqual((row["version"], row["status"], row["role"]),

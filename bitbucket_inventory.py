@@ -33,7 +33,7 @@ SETTING = re.compile(
     r"^\s*(?:-\s*)?(?P<key>java[._-]?(?:version|home)|jdk[._-]?(?:version|home)|"
     r"maven\.compiler\.(?:release|source|target)|sourceCompatibility|targetCompatibility|"
     r"languageVersion|jvmTarget|jdkVersion|java-version|JAVA_TOOLCHAIN_VERSION|org\.gradle\.java\.home)"
-    r"(?:\s*[:=]\s*|\s+)(?P<value>[^\s<#]+|.+)", re.I
+    r'''(?:\s*[:=]\s*|\s+)(?P<value>"[^"\r\n]*"|'[^'\r\n]*'|[^\s<#]+|.+)''', re.I
 )
 XML = re.compile(
     r"<(?P<key>java\.version|jdk\.version|maven\.compiler\.(?:release|source|target)|"

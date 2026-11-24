@@ -139,7 +139,10 @@ def make_flags(source, settings):
         "repositories": "repository"
     }
     for key, option in options.items():
-        for item in settings.get(key, "").split(","):
+        value = settings.get(key, "")
+        if not isinstance(value, str):
+            raise ValueError(f"Поле {key} должно быть строкой со значениями через запятую")
+        for item in value.split(","):
             if item.strip():
                 flags.append(f"--{option}={item.strip()}")
     if source == "nexus" and settings.get("includeProxy") is True:

@@ -239,9 +239,13 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             line_number = text.count("\n", 0, match.start()) + 1
             jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):
+        string_ranges = [(match.start(), match.end()) for match in re.finditer(
+            r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""", text)]
         for key, pattern in (("toolchain", GRADLE_TOOLCHAIN), ("release", GRADLE_RELEASE),
                              ("release", GRADLE_RELEASE_ASSIGNMENT)):
             for match in pattern.finditer(text):
+                if any(start <= match.start() < end for start, end in string_ranges):
+                    continue
                 line_number = text.count("\n", 0, match.start()) + 1
                 gradle_declarations.setdefault(line_number, []).append((key, match[1]))
     if name == "pom.xml":

@@ -233,6 +233,19 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  (version, status, "build_jdk_declaration", 2))
 
+    def test_gradle_logged_toolchain_calls_do_not_create_candidates(self):
+        text = ('println("jvmToolchain(25)")\n'
+                "println('JavaLanguageVersion.of(27)')\n"
+                'println("options.release.set(25)")\n'
+                'jvmToolchain(21)\n')
+        for path in ("build.gradle", "build.gradle.kts"):
+            with self.subTest(path=path):
+                row, = bitbucket.declarations(path, text, (17, 21, 25, 27))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 ("21", "candidate", "build_jdk_declaration", 4))
+        row, = bitbucket.declarations("build.gradle", 'sourceCompatibility = "21"', (17, 21))
+        self.assertEqual((row["version"], row["status"]), ("21", "candidate"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

@@ -46,6 +46,9 @@ ARG = re.compile(r"^\s*ARG\s+(\w+)(?:\s*=\s*(\S+))?", re.I)
 FROM = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", re.I)
 IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"]+)""", re.I)
 YAML_JAVA_KEY = r'''(?:java-version|"java-version"|'java-version')'''
+YAML_SETTING_KEY = re.compile(
+    r'''^(\s*(?:-\s*)?)(["'])(java[._-]?(?:version|home)|jdk[._-]?(?:version|home))\2(\s*:)''', re.I
+)
 YAML_JAVA_LIST = re.compile(rf"^[ \t]*(?:-[ \t]*)?{YAML_JAVA_KEY}[ \t]*:[ \t]*\[([^\]]*)\]", re.I | re.M)
 YAML_VERSION_ITEM = re.compile(r'''(?:"([\d][\w.+-]*)"|'([\d][\w.+-]*)'|([\d][\w.+-]*))''')
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\s*([^(),]+)\s*\)")
@@ -298,6 +301,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         matches = xml_declarations.pop(number, [])
         matches.extend(maven_declarations.pop(number, []))
         setting_line = re.sub(r"^\s*ENV\s+", "", line, flags=re.I) if dockerfile else line
+        if name.endswith((".yaml", ".yml")):
+            setting_line = YAML_SETTING_KEY.sub(r"\1\3\4", setting_line)
         setting = SETTING.match(setting_line)
         if setting:
             matches.append((setting["key"], setting["value"]))

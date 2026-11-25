@@ -288,6 +288,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                                  [("21", "candidate", "bytecode_target", 2),
                                   ("11", "outside_scope", "bytecode_target", 6)])
 
+    def test_multiline_kotlin_jvm_target_preserves_opening_line(self):
+        for expression, version, status in (
+                ('jvmTarget.set(\n  JvmTarget.JVM_21\n)', "21", "candidate"),
+                ('jvmTarget.set(\n  JvmTarget.fromTarget(\n    "21"\n  )\n)', "21", "candidate"),
+                ('jvmTarget.set(\n  JvmTarget.JVM_1_8\n)', "1.8", "outside_scope")):
+            with self.subTest(expression=expression):
+                row, = bitbucket.declarations("build.gradle.kts", "\n" + expression, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 (version, status, "bytecode_target", 2))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

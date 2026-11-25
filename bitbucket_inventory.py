@@ -256,6 +256,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         for match in code_matches(GRADLE_COMPATIBILITY, text):
             line_number = text.count("\n", 0, match.start()) + 1
             gradle_declarations.setdefault(line_number, []).append(match.groups())
+        for pattern in (GRADLE_JVM_TARGET, GRADLE_JVM_TARGET_STRING):
+            for match in code_matches(pattern, text):
+                line_number = text.count("\n", 0, match.start()) + 1
+                version = ".".join(part for part in match.groups() if part)
+                gradle_declarations.setdefault(line_number, []).append(("jvmTarget", version))
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
             for key, value in re.findall(r"<([\w.-]+)>\s*([^<]+?)\s*</\1>", block):
@@ -341,20 +346,18 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                     if "=" in assignment and (extra_setting := SETTING.match(assignment)):
                         matches.append((extra_setting["key"], extra_setting["value"]))
         gradle_rows = gradle_declarations.pop(number, [])
-        compatibility_keys = {key for key, _ in gradle_rows
+        jvm_assignments = list(code_matches(GRADLE_JVM_TARGET_ASSIGNMENT, line)) if name.endswith((".gradle", ".gradle.kts")) else []
+        compatibility_keys = {key.lower() for key, _ in gradle_rows
                               if key in {"sourceCompatibility", "targetCompatibility"}}
+        if jvm_assignments:
+            compatibility_keys.add("jvmtarget")
         if compatibility_keys:
-            matches = [(key, value) for key, value in matches if key not in compatibility_keys]
+            matches = [(key, value) for key, value in matches if key.lower() not in compatibility_keys]
         matches.extend(gradle_rows)
         if name.endswith((".gradle", ".gradle.kts")):
-            jvm_assignments = list(code_matches(GRADLE_JVM_TARGET_ASSIGNMENT, line))
             if jvm_assignments:
-                matches = [(key, value) for key, value in matches if key.lower() != "jvmtarget"]
                 matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                                for match in jvm_assignments)
-            matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
-                           for match in code_matches(GRADLE_JVM_TARGET, line))
-            matches.extend(("jvmTarget", match[1]) for match in code_matches(GRADLE_JVM_TARGET_STRING, line))
         if name.endswith(".gradle"):
             matches.extend(("toolchain", match[1]) for match in code_matches(GRADLE_GROOVY_TOOLCHAIN, line))
         matches.extend(jenkins_declarations.pop(number, []))

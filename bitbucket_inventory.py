@@ -126,9 +126,22 @@ def version_value(value, java_majors):
     return "", "unknown_version"
 
 
+def docker_logical_lines(lines):
+    pending = ""
+    for line in lines:
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        part = line.rstrip()
+        if part.endswith("\\"):
+            pending += part[:-1] + " "
+        else:
+            yield pending + part
+            pending = ""
+
+
 def copied_jdk_stages(lines):
     stages = set()
-    for line in lines:
+    for line in docker_logical_lines(lines):
         copy = COPY_OPTIONS.match(line)
         if not copy:
             continue

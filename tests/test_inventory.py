@@ -267,6 +267,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  ("17.0.6", "candidate", role))
 
+    def test_docker_multiline_copy_preserves_bundled_jdk_role(self):
+        base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
+        continued = "\\\n"
+        for instruction, role in (
+                (f"COPY --from=tools {continued}  /opt/java/openjdk/ {continued}  /runtime/", "bundled_jdk"),
+                (f'COPY --from=0 {continued}# JDK\n  ["/opt/java/openjdk/", "/runtime/"]', "bundled_jdk"),
+                (f"RUN echo {continued}  COPY --from=tools /opt/java/openjdk/ /runtime/", "intermediate_base")):
+            with self.subTest(instruction=instruction):
+                row, = bitbucket.declarations("Dockerfile", base + instruction)
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 ("17.0.6", "candidate", role, 1))
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

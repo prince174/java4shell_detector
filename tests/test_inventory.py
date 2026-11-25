@@ -246,6 +246,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  ("17.0.6", "candidate", role))
 
+    def test_docker_copy_debian_openjdk_directory_preserves_bundled_role(self):
+        base = "FROM openjdk:17.0.6-jdk AS tools\nFROM debian:stable\n"
+        for source, role in (("/usr/lib/jvm/java-17-openjdk-amd64/", "bundled_jdk"),
+                             ("/usr/lib/jvm/java-1.17.0-openjdk-amd64/.", "bundled_jdk"),
+                             ("/usr/lib/jvm/java-17-openjdk-amd64/bin/java", "intermediate_base")):
+            with self.subTest(source=source):
+                row, = bitbucket.declarations("Dockerfile", base + f"COPY --from=tools {source} /runtime/")
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("17.0.6", "candidate", role))
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

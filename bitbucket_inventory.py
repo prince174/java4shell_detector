@@ -49,6 +49,9 @@ YAML_JAVA_KEY = r'''(?:java-version|"java-version"|'java-version')'''
 YAML_SETTING_KEY = re.compile(
     r'''^(\s*(?:-\s*)?)(["'])(java[._-]?(?:version|home)|jdk[._-]?(?:version|home))\2(\s*:)''', re.I
 )
+YAML_ENV_ASSIGNMENT = re.compile(
+    r'''^[ \t]*-[ \t]+(["'])((?:JAVA|JDK)_(?:VERSION|HOME))=(.*?)\1[ \t]*(?:#.*)?$''', re.I
+)
 YAML_JAVA_LIST = re.compile(rf"^[ \t]*(?:-[ \t]*)?{YAML_JAVA_KEY}[ \t]*:[ \t]*\[([^\]]*)\]", re.I | re.M)
 YAML_VERSION_ITEM = re.compile(r'''(?:"([\d][\w.+-]*)"|'([\d][\w.+-]*)'|([\d][\w.+-]*))''')
 GRADLE_TOOLCHAIN = re.compile(r"\b(?:JavaLanguageVersion\.of|jvmToolchain)\s*\(\s*([^(),]+)\s*\)")
@@ -300,6 +303,9 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             continue
         matches = xml_declarations.pop(number, [])
         matches.extend(maven_declarations.pop(number, []))
+        yaml_env = YAML_ENV_ASSIGNMENT.fullmatch(line) if name.endswith((".yaml", ".yml")) else None
+        if yaml_env:
+            matches.append((yaml_env[2], yaml_env[3]))
         setting_line = re.sub(r"^\s*ENV\s+", "", line, flags=re.I) if dockerfile else line
         if name.endswith((".yaml", ".yml")):
             setting_line = YAML_SETTING_KEY.sub(r"\1\3\4", setting_line)

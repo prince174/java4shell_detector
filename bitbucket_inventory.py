@@ -243,7 +243,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             if values:
                 yaml_declarations[index + 1] = values
     if name.startswith("jenkinsfile"):
-        for match in JENKINS_JDK.finditer(text):
+        for match in code_matches(JENKINS_JDK, text):
             line_number = text.count("\n", 0, match.start()) + 1
             jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):

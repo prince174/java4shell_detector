@@ -258,6 +258,15 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  ("21", "candidate", role, 2))
 
+    def test_jenkins_logged_jdk_selection_does_not_create_candidate(self):
+        for path in ("Jenkinsfile", "ci/Jenkinsfile.release"):
+            for version, status in (("17.0.6", "candidate"), ("17.0.5", "outside_scope")):
+                with self.subTest(path=path, version=version):
+                    text = 'echo "Use jdk \'jdk-25\'"\n' + f"tools {{ jdk 'jdk-{version}' }}"
+                    row, = bitbucket.declarations(path, text, (17, 25))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     (version, status, "build_jdk_declaration", 2))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

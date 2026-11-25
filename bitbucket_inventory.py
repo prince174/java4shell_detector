@@ -142,7 +142,10 @@ def copied_jdk_stages(lines):
             except ValueError:
                 continue
         else:
-            paths = arguments.split()
+            try:
+                paths = shlex.split(arguments)
+            except ValueError:
+                continue
         if len(paths) < 2 or not all(isinstance(path, str) and path for path in paths):
             continue
         if any(JDK_DIRECTORY.fullmatch(str(PurePosixPath(source))) for source in paths[:-1]):

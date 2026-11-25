@@ -1592,6 +1592,30 @@ class ConsoleTests(unittest.TestCase):
         self.assertIn("exit=2", "\n".join(log.output))
         self.assertNotIn("fixture-secret", "\n".join(log.output))
 
+    def test_nexus_results_include_successful_images_without_java(self):
+        assets = [{"repository": "images", "image": f"tools/no-java-{index:02}", "reference": "latest",
+                   "status": "scanned", "findings": 0} for index in range(11)]
+        assets.append({**assets[0], "platform": "linux/arm64"})
+        assets.extend([
+            {"repository": "images", "image": "with-java", "reference": "latest", "status": "scanned", "findings": 1},
+            {"repository": "images", "image": "partial", "reference": "latest", "status": "scanned", "findings": 0},
+            {"repository": "images", "image": "partial", "reference": "latest", "status": "error"},
+        ])
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp)
+            write_reports(output / "nexus" / "run", {"source": "nexus", "url": "https://nexus.invalid"},
+                          assets, [{"repository": "images", "image": "with-java", "reference": "latest", "status": "candidate"}], [])
+            with patch("web_app.OUTPUT", output):
+                first = results_page("nexus", 1, False)
+                second = results_page("nexus", 2, False)
+                candidates = results_page("nexus", 1, True)
+        self.assertEqual((first["total"], first["pages"], len(first["items"]), len(second["items"])), (12, 2, 10, 2))
+        empty = [item for item in first["items"] + second["items"] if item.get("noJavaFound")]
+        self.assertEqual(len(empty), 11)
+        self.assertTrue(all(item["findings"] == [] and item["url"].startswith("https://nexus.invalid/#browse/") for item in empty))
+        self.assertEqual(candidates["total"], 1)
+        self.assertEqual(candidates["items"][0]["title"], "with-java:latest")
+
     def test_results_pages_group_repositories_and_encode_links(self):
         findings = [
             {"repository": f"workspace/repo-{index:02}", "evidence": "ci config/pom.xml (java.version)",

@@ -163,6 +163,15 @@ def browser_base(value):
     return url._replace(query="", fragment="").geturl().rstrip("/")
 
 
+def nexus_result_identity(row, base):
+    repository, image = row["repository"], row["image"]
+    reference = row.get("reference") or row.get("tag") or row["digest"]
+    separator = "@" if reference.startswith("sha256:") else ":"
+    asset_path = quote(row.get("asset_path") or f"v2/{image}/manifests/{reference}", safe="")
+    url = f"{base}/#browse/browse:{quote(repository, safe='')}:{asset_path}" if base else ""
+    return (repository, image, reference), f"{image}{separator}{reference}", url
+
+
 @lru_cache(maxsize=4)
 def result_groups(path, stamp):
     report = json.loads(path.read_text(encoding="utf-8"))
@@ -178,13 +187,7 @@ def result_groups(path, stamp):
         file = ""
         project = ""
         if source == "nexus":
-            image = row["image"]
-            reference = row.get("reference") or row.get("tag") or row["digest"]
-            key = (repository, image, reference)
-            separator = "@" if reference.startswith("sha256:") else ":"
-            title = f"{image}{separator}{reference}"
-            asset_path = quote(row.get("asset_path") or f"v2/{image}/manifests/{reference}", safe="")
-            url = f"{base}/#browse/browse:{quote(repository, safe='')}:{asset_path}" if base else ""
+            key, title, url = nexus_result_identity(row, base)
         else:
             key = (repository,)
             if row["status"] != "candidate" or key in groups:
@@ -205,6 +208,20 @@ def result_groups(path, stamp):
         group = groups.setdefault(key, {"title": title, "repository": repository, "url": url,
                                         "project": project, "findings": []})
         group["findings"].append({**row, "url": evidence_url, **({"file": file} if file else {})})
+    if source == "nexus":
+        empty_images = {}
+        for asset in report.get("assets", []):
+            if not asset.get("image") or not (asset.get("reference") or asset.get("tag") or asset.get("digest")):
+                continue
+            key, title, url = nexus_result_identity(asset, base)
+            group = empty_images.setdefault(key, {
+                "title": title, "repository": asset["repository"], "url": url,
+                "project": "", "findings": [], "noJavaFound": True,
+            })
+            if asset.get("status") != "scanned" or asset.get("findings") != 0:
+                group["noJavaFound"] = False
+        groups.update({key: group for key, group in empty_images.items()
+                       if group["noJavaFound"] and key not in groups})
     ordered = sorted(groups.values(), key=lambda group: (group["project"], group["title"]))
     return (ordered, scope.get("java_majors", [17]),
             scope.get("profile", "inventory"), report["generated_at"])

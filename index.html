@@ -136,6 +136,10 @@ function resultItem(item) {
   const details = element('details', '');
   if (view === 'nexus') {
     row.append(resultLink(item.title, item.url), element('span', ' · ' + item.repository));
+    if (item.noJavaFound) {
+      row.append(element('p', 'Признаков Java не найдено.'));
+      return row;
+    }
     details.append(element('summary', 'Находок: ' + item.findings.length +
       ' · кандидатов: ' + item.findings.filter(finding => finding.status === 'candidate').length),
       findingList(item.findings));

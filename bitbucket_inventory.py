@@ -25,7 +25,7 @@ JAVA = r"(?:openjdk|temurin|(?:amazon)?corretto|zulu|sapmachine|liberica|semeru|
 JAVA_IMAGE = re.compile(rf"(?:^|[/_.-]){JAVA}(?=[:/_.@\d-]|$)", re.I)
 TEMURIN_IMAGE = re.compile(r"(?:^|/)eclipse-temurin(?=[:@]|$)", re.I)
 COPY_OPTIONS = re.compile(r"^\s*COPY\s+((?:--\S+\s+)+)(.+)$", re.I)
-JDK_DIRECTORY = re.compile(r"[^\r\n]*/(?:jdk|openjdk|jre)/?", re.I)
+JDK_DIRECTORY = re.compile(r"[^\r\n]*/(?:jdk|openjdk|jre)(?:[-_]\d[A-Za-z0-9._+\-]*)?/?", re.I)
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
 JAVA_PATH_VERSION = re.compile(rf"(?:^|[/\\]){JAVA}[_.-]?([0-9][A-Za-z0-9._+\-]*)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")

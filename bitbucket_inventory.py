@@ -71,6 +71,14 @@ NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")
 MAVEN_DEFINE = re.compile(
     r"(?<!\S)(?:-D|--define(?:=|[ \t]+))[ \t]*(java\.version|jdk\.version|maven\.compiler\.(?:release|source|target))=([^\s]+)"
 )
+STRING_LITERAL = re.compile(r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""")
+
+
+def code_matches(pattern, text):
+    ranges = [(match.start(), match.end()) for match in STRING_LITERAL.finditer(text)]
+    for match in pattern.finditer(text):
+        if not any(start <= match.start() < end for start, end in ranges):
+            yield match
 
 
 def paged(api, path, **params):
@@ -239,13 +247,9 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             line_number = text.count("\n", 0, match.start()) + 1
             jenkins_declarations.setdefault(line_number, []).append(("jdk", match[1]))
     if name.endswith((".gradle", ".gradle.kts")):
-        string_ranges = [(match.start(), match.end()) for match in re.finditer(
-            r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""", text)]
         for key, pattern in (("toolchain", GRADLE_TOOLCHAIN), ("release", GRADLE_RELEASE),
                              ("release", GRADLE_RELEASE_ASSIGNMENT)):
-            for match in pattern.finditer(text):
-                if any(start <= match.start() < end for start, end in string_ranges):
-                    continue
+            for match in code_matches(pattern, text):
                 line_number = text.count("\n", 0, match.start()) + 1
                 gradle_declarations.setdefault(line_number, []).append((key, match[1]))
     if name == "pom.xml":
@@ -334,21 +338,21 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                         matches.append((extra_setting["key"], extra_setting["value"]))
         matches.extend(gradle_declarations.pop(number, []))
         if name.endswith((".gradle", ".gradle.kts")):
-            jvm_assignments = list(GRADLE_JVM_TARGET_ASSIGNMENT.finditer(line))
+            jvm_assignments = list(code_matches(GRADLE_JVM_TARGET_ASSIGNMENT, line))
             if jvm_assignments:
                 matches = [(key, value) for key, value in matches if key.lower() != "jvmtarget"]
                 matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                                for match in jvm_assignments)
-            compatibility = [match.groups() for match in GRADLE_COMPATIBILITY.finditer(line)]
+            compatibility = [match.groups() for match in code_matches(GRADLE_COMPATIBILITY, line)]
             if compatibility:
                 matches = [(key, value) for key, value in matches
                            if key not in {"sourceCompatibility", "targetCompatibility"}]
                 matches.extend(compatibility)
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
-                           for match in GRADLE_JVM_TARGET.finditer(line))
-            matches.extend(("jvmTarget", match[1]) for match in GRADLE_JVM_TARGET_STRING.finditer(line))
+                           for match in code_matches(GRADLE_JVM_TARGET, line))
+            matches.extend(("jvmTarget", match[1]) for match in code_matches(GRADLE_JVM_TARGET_STRING, line))
         if name.endswith(".gradle"):
-            matches.extend(("toolchain", match[1]) for match in GRADLE_GROOVY_TOOLCHAIN.finditer(line))
+            matches.extend(("toolchain", match[1]) for match in code_matches(GRADLE_GROOVY_TOOLCHAIN, line))
         matches.extend(jenkins_declarations.pop(number, []))
         if name == ".java-version":
             matches.append(("java-version", stripped))

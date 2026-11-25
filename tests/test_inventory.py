@@ -445,6 +445,19 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  (version, status, "build_jdk_declaration"))
 
+    def test_maven_config_defines_preserve_versions_roles_and_lines(self):
+        self.assertTrue(bitbucket.config_file("project/.mvn/maven.config"))
+        self.assertFalse(bitbucket.config_file("docs/maven.config"))
+        text = ('# -Djava.version=25\n-Djava.version=17.0.5\n'
+                '-Djava.version=17.0.6\n--define=maven.compiler.release=21\n'
+                '--define\njdk.version=21\n')
+        rows = list(bitbucket.declarations(".mvn/maven.config", text, (17, 21, 25)))
+        self.assertEqual([(row["version"], row["status"], row["role"], row["line"]) for row in rows],
+                         [("17.0.5", "outside_scope", "build_jdk_declaration", 2),
+                          ("17.0.6", "candidate", "build_jdk_declaration", 3),
+                          ("21", "candidate", "bytecode_target", 4),
+                          ("21", "candidate", "build_jdk_declaration", 6)])
+
     def test_gradle_java_home_property_selects_build_jdk(self):
         row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=/opt/jdk-17.0.6\n")
         self.assertEqual((row["version"], row["status"], row["role"]),

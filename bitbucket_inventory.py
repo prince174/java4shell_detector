@@ -59,6 +59,9 @@ GRADLE_COMPATIBILITY = re.compile(
 )
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")
+MAVEN_DEFINE = re.compile(
+    r"(?<!\S)(?:-D|--define(?:=|[ \t]+))[ \t]*(java\.version|jdk\.version|maven\.compiler\.(?:release|source|target))=([^\s]+)"
+)
 
 
 def paged(api, path, **params):
@@ -83,6 +86,7 @@ def paged(api, path, **params):
 def config_file(path):
     name = PurePosixPath(path).name.lower()
     return (name.startswith(("dockerfile", "containerfile", "jenkinsfile"))
+            or name == "maven.config" and PurePosixPath(path).parent.name == ".mvn"
             or name.endswith((".dockerfile", ".containerfile", ".yaml", ".yml", ".gradle", ".gradle.kts"))
             or name in {"pom.xml", "gradle.properties", ".java-version", ".tool-versions",
                         ".sdkmanrc", ".gitlab-ci.yml"})
@@ -166,6 +170,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     gradle_declarations = {}
     jenkins_declarations = {}
     yaml_declarations = {}
+    maven_declarations = {}
+    if name == "maven.config" and PurePosixPath(path).parent.name == ".mvn":
+        for match in MAVEN_DEFINE.finditer(text):
+            line_number = text.count("\n", 0, match.start()) + 1
+            maven_declarations.setdefault(line_number, []).append(match.groups())
     if name.endswith((".yaml", ".yml")):
         for match in YAML_JAVA_LIST.finditer(text):
             values = re.sub(r"#[^\r\n]*", "", match[1])
@@ -263,6 +272,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 yield finding(number, role, "FROM" if stage else "image", value, image=True)
             continue
         matches = xml_declarations.pop(number, [])
+        matches.extend(maven_declarations.pop(number, []))
         setting_line = re.sub(r"^\s*ENV\s+", "", line, flags=re.I) if dockerfile else line
         setting = SETTING.match(setting_line)
         if setting:

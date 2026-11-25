@@ -474,8 +474,9 @@ def inventory(api, args):
                     or repo.get("project") is not None and not isinstance(repo["project"], dict)):
                 raise ValueError(f"Invalid Bitbucket repository entry at index {index}")
             project = (repo.get("project") or {}).get("key")
-            if not cloud and (not isinstance(project, str) or not project.strip()):
-                raise ValueError(f"Invalid Bitbucket Data Center project key at repository index {index}")
+            if (not cloud or project is not None) and (not isinstance(project, str) or not project.strip()):
+                provider = "Cloud" if cloud else "Data Center"
+                raise ValueError(f"Invalid Bitbucket {provider} project key at repository index {index}")
             slug = repo["slug"]
             if args.project and project not in args.project:
                 continue

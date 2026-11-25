@@ -528,6 +528,28 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
 
 
 class BitbucketTests(unittest.TestCase):
+    def test_cloud_project_key_validation_allows_unassigned_repositories(self):
+        for key in ([], {}, True, 1, " "):
+            with self.subTest(key=key):
+                with patch.object(bitbucket, "cloud_pages", return_value=[
+                        {"slug": "repo", "project": {"key": key}}]), \
+                        patch.object(bitbucket, "scan_repository") as scan:
+                    assets, findings, errors = bitbucket.inventory(None, bb_args(provider="cloud"))
+                self.assertEqual((assets, findings, len(errors)), ([], [], 1))
+                self.assertEqual(errors[0]["stage"], "list_repositories")
+                self.assertIn("Invalid Bitbucket Cloud project key", errors[0]["error"])
+                scan.assert_not_called()
+        for project in (None, {}, {"key": None}):
+            with self.subTest(project=project):
+                with patch.object(bitbucket, "cloud_pages", return_value=[
+                        {"slug": "repo", "project": project}]), \
+                        patch.object(bitbucket, "scan_repository") as scan:
+                    assets, _, errors = bitbucket.inventory(None, bb_args(provider="cloud"))
+                self.assertFalse(errors)
+                self.assertEqual(assets[0]["repository"], "test/repo")
+                self.assertIsNone(assets[0]["project"])
+                scan.assert_called_once()
+
     def test_cloud_invalid_mainbranch_is_reported_before_clone(self):
         for branch in ("main", [], False, {"name": []}, {"name": " "}, {"name": 1}):
             with self.subTest(branch=branch):

@@ -136,6 +136,10 @@ function resultItem(item) {
   const details = element('details', '');
   if (view === 'nexus') {
     row.append(resultLink(item.title, item.url), element('span', ' · ' + item.repository));
+    if (item.scanIncomplete) {
+      row.append(element('p', 'Проверка образа неполная. Подробности в JSON-отчёте.'));
+      if (!item.findings.length) return row;
+    }
     if (item.noJavaFound) {
       row.append(element('p', 'Признаков Java не найдено.'));
       return row;

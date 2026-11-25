@@ -209,19 +209,25 @@ def result_groups(path, stamp):
                                         "project": project, "findings": []})
         group["findings"].append({**row, "url": evidence_url, **({"file": file} if file else {})})
     if source == "nexus":
-        empty_images = {}
+        image_groups = {}
         for asset in report.get("assets", []):
             if not asset.get("image") or not (asset.get("reference") or asset.get("tag") or asset.get("digest")):
                 continue
             key, title, url = nexus_result_identity(asset, base)
-            group = empty_images.setdefault(key, {
+            group = image_groups.setdefault(key, {
                 "title": title, "repository": asset["repository"], "url": url,
-                "project": "", "findings": [], "noJavaFound": True,
+                "project": "", "findings": [], "noJavaFound": True, "scanIncomplete": False,
             })
+            if asset.get("status") != "scanned":
+                group["scanIncomplete"] = True
             if asset.get("status") != "scanned" or asset.get("findings") != 0:
                 group["noJavaFound"] = False
-        groups.update({key: group for key, group in empty_images.items()
-                       if group["noJavaFound"] and key not in groups})
+        for key, group in image_groups.items():
+            if key in groups:
+                if group["scanIncomplete"]:
+                    groups[key]["scanIncomplete"] = True
+            elif group["noJavaFound"] or group["scanIncomplete"]:
+                groups[key] = group
     ordered = sorted(groups.values(), key=lambda group: (group["project"], group["title"]))
     return (ordered, scope.get("java_majors", [17]),
             scope.get("profile", "inventory"), report["generated_at"])

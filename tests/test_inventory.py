@@ -1609,12 +1609,32 @@ class ConsoleTests(unittest.TestCase):
                 first = results_page("nexus", 1, False)
                 second = results_page("nexus", 2, False)
                 candidates = results_page("nexus", 1, True)
-        self.assertEqual((first["total"], first["pages"], len(first["items"]), len(second["items"])), (12, 2, 10, 2))
+        self.assertEqual((first["total"], first["pages"], len(first["items"]), len(second["items"])), (13, 2, 10, 3))
         empty = [item for item in first["items"] + second["items"] if item.get("noJavaFound")]
         self.assertEqual(len(empty), 11)
         self.assertTrue(all(item["findings"] == [] and item["url"].startswith("https://nexus.invalid/#browse/") for item in empty))
         self.assertEqual(candidates["total"], 1)
         self.assertEqual(candidates["items"][0]["title"], "with-java:latest")
+
+    def test_nexus_results_keep_partial_images_and_candidate_evidence(self):
+        assets = [{"repository": "images", "image": image, "reference": "latest", "status": "error"}
+                  for image in ("failed", "partial")]
+        assets.append({"repository": "images", "image": "partial", "reference": "latest",
+                       "status": "scanned", "findings": 1})
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            output = Path(tmp)
+            write_reports(output / "nexus" / "run", {"source": "nexus", "url": "https://nexus.invalid"},
+                          assets, [{"repository": "images", "image": "partial", "reference": "latest", "status": "candidate"}],
+                          [{"repository": "images", "error": "fixture platform failure"}])
+            with patch("web_app.OUTPUT", output):
+                all_images = results_page("nexus", 1, False)
+                candidates = results_page("nexus", 1, True)
+        self.assertEqual(all_images["total"], 2)
+        self.assertTrue(all(item["scanIncomplete"] and not item.get("noJavaFound") for item in all_images["items"]))
+        self.assertTrue(all(item["url"] for item in all_images["items"]))
+        self.assertEqual(candidates["total"], 1)
+        self.assertTrue(candidates["items"][0]["scanIncomplete"])
+        self.assertEqual(candidates["items"][0]["findings"][0]["status"], "candidate")
 
     def test_results_pages_group_repositories_and_encode_links(self):
         findings = [

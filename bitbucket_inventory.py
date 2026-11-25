@@ -64,7 +64,8 @@ GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\(\s*(?:[\w.]+\.)?JvmT
 GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
 GRADLE_RELEASE_ASSIGNMENT = re.compile(r"\boptions\.release\s*=\s*(\d+)\b")
 GRADLE_COMPATIBILITY = re.compile(
-    r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_(?:1_[5-8]|\d+)|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
+    r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_(?:1_[5-8]|\d+)"""
+    r"""|JavaVersion\.toVersion\s*\(\s*(?:['"][\d.]+['"]|\d+)\s*\)|['"][\d.]+['"]|\d+(?:\.\d+)*)"""
 )
 JENKINS_JDK = re.compile(r"\bjdk\s*\(?\s*['\"]([^'\"]+)['\"]")
 NUMERIC_VALUE = re.compile(r"(?:^|[\s:'\"(/_-])(?:1\.8|\d+)(?=$|[.\s+'\")_/-])")

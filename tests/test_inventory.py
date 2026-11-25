@@ -277,6 +277,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                      (version, status, "bytecode_target", 2))
 
+    def test_multiline_gradle_compatibility_preserves_opening_line(self):
+        text = ('java {\n  sourceCompatibility =\n    JavaVersion.toVersion(\n      "21"\n    )\n'
+                '  targetCompatibility =\n    JavaVersion.VERSION_11\n}\n')
+        for path in ("build.gradle", "build.gradle.kts"):
+            with self.subTest(path=path):
+                rows = list(bitbucket.declarations(path, text, (17, 21)))
+                self.assertEqual([(row["version"], row["status"], row["role"], row["line"])
+                                  for row in rows],
+                                 [("21", "candidate", "bytecode_target", 2),
+                                  ("11", "outside_scope", "bytecode_target", 6)])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

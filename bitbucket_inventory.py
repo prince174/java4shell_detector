@@ -253,6 +253,9 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             for match in code_matches(pattern, text):
                 line_number = text.count("\n", 0, match.start()) + 1
                 gradle_declarations.setdefault(line_number, []).append((key, match[1]))
+        for match in code_matches(GRADLE_COMPATIBILITY, text):
+            line_number = text.count("\n", 0, match.start()) + 1
+            gradle_declarations.setdefault(line_number, []).append(match.groups())
     if name == "pom.xml":
         for block in re.findall(r"<properties>(.*?)</properties>", text, re.S):
             for key, value in re.findall(r"<([\w.-]+)>\s*([^<]+?)\s*</\1>", block):
@@ -337,18 +340,18 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 for assignment in assignments[1:]:
                     if "=" in assignment and (extra_setting := SETTING.match(assignment)):
                         matches.append((extra_setting["key"], extra_setting["value"]))
-        matches.extend(gradle_declarations.pop(number, []))
+        gradle_rows = gradle_declarations.pop(number, [])
+        compatibility_keys = {key for key, _ in gradle_rows
+                              if key in {"sourceCompatibility", "targetCompatibility"}}
+        if compatibility_keys:
+            matches = [(key, value) for key, value in matches if key not in compatibility_keys]
+        matches.extend(gradle_rows)
         if name.endswith((".gradle", ".gradle.kts")):
             jvm_assignments = list(code_matches(GRADLE_JVM_TARGET_ASSIGNMENT, line))
             if jvm_assignments:
                 matches = [(key, value) for key, value in matches if key.lower() != "jvmtarget"]
                 matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                                for match in jvm_assignments)
-            compatibility = [match.groups() for match in code_matches(GRADLE_COMPATIBILITY, line)]
-            if compatibility:
-                matches = [(key, value) for key, value in matches
-                           if key not in {"sourceCompatibility", "targetCompatibility"}]
-                matches.extend(compatibility)
             matches.extend(("jvmTarget", ".".join(part for part in match.groups() if part))
                            for match in code_matches(GRADLE_JVM_TARGET, line))
             matches.extend(("jvmTarget", match[1]) for match in code_matches(GRADLE_JVM_TARGET_STRING, line))

@@ -309,6 +309,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  (version, status, "bytecode_target", 2))
 
+    def test_kotlin_jvm_target_calls_accept_space_before_parenthesis(self):
+        for expression, version, status in (
+                ('jvmTarget.set (JvmTarget.JVM_21)', "21", "candidate"),
+                ('jvmTarget.set (JvmTarget.fromTarget ("21"))', "21", "candidate"),
+                ('jvmTarget.set (JvmTarget.JVM_1_8)', "1.8", "outside_scope")):
+            with self.subTest(expression=expression):
+                row, = bitbucket.declarations("build.gradle.kts", "\n" + expression, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 (version, status, "bytecode_target", 2))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

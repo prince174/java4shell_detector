@@ -279,6 +279,20 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  ("17.0.6", "candidate", role, 1))
 
+    def test_multiline_docker_from_preserves_version_role_and_opening_line(self):
+        continued = "\\\n"
+        text = (f"FROM --platform=linux/amd64 {continued}# build JDK\n"
+                "  eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
+                "COPY --from=tools /opt/java/openjdk/ /runtime/\n")
+        row, = bitbucket.declarations("Dockerfile", text)
+        self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                         ("17.0.6", "candidate", "bundled_jdk", 1))
+        row, = bitbucket.declarations("Dockerfile", f"FROM {continued}  eclipse-temurin:17.0.5")
+        self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                         ("17.0.5", "outside_scope", "runtime_base", 1))
+        self.assertEqual(list(bitbucket.declarations("Dockerfile",
+                         f"FROM debian:stable\nRUN echo {continued}  FROM eclipse-temurin:17.0.6")), [])
+
     def test_maven_multiline_declarations_link_to_opening_tag(self):
         pom = """<project>
   <properties>

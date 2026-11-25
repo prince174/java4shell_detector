@@ -126,22 +126,25 @@ def version_value(value, java_majors):
     return "", "unknown_version"
 
 
-def docker_logical_lines(lines):
+def docker_instructions(lines):
     pending = ""
-    for line in lines:
+    start = 0
+    for number, line in enumerate(lines, 1):
         if not line.strip() or line.lstrip().startswith("#"):
             continue
+        if not pending:
+            start = number
         part = line.rstrip()
         if part.endswith("\\"):
             pending += part[:-1] + " "
         else:
-            yield pending + part
+            yield start, pending + part
             pending = ""
 
 
 def copied_jdk_stages(lines):
     stages = set()
-    for line in docker_logical_lines(lines):
+    for _, line in docker_instructions(lines):
         copy = COPY_OPTIONS.match(line)
         if not copy:
             continue
@@ -182,7 +185,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     dockerfile = name.startswith(("dockerfile", "containerfile")) or name.endswith(
         (".dockerfile", ".containerfile")
     )
-    stages = [number for number, line in enumerate(lines, 1) if FROM.match(line)] if dockerfile else []
+    from_lines = {number: line for number, line in docker_instructions(lines) if FROM.match(line)} if dockerfile else {}
+    stages = list(from_lines)
     copied_jdks = copied_jdk_stages(lines[stages[-1]:]) if stages else set()
     variables = {}
     xml_declarations = {}
@@ -272,13 +276,14 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 "vendor": vendor, "distribution": distribution}
 
     for number, line in enumerate(lines, 1):
+        line = from_lines.get(number, line)
         stripped = line.strip()
         if not stripped or stripped.startswith(("#", "//", "*")):
             continue
         arg = ARG.match(line) if dockerfile and stages and number < stages[0] else None
         if arg and arg[2]:
             variables[arg[1]] = arg[2].strip("'\"")
-        stage = FROM.match(line) if dockerfile else None
+        stage = FROM.match(line) if number in from_lines else None
         image = IMAGE.match(line) if name.endswith((".yaml", ".yml")) else None
         if stage or image:
             value = (stage or image)[1]

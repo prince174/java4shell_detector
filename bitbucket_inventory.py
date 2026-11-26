@@ -73,7 +73,7 @@ MAVEN_DEFINE = re.compile(
     r"(?<!\S)(?:-D|--define(?:=|[ \t]+))[ \t]*(java\.version|jdk\.version|maven\.compiler\.(?:release|source|target))=([^\s]+)"
 )
 STRING_LITERAL = re.compile(r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""")
-KOTLIN_LITERAL_VAL = re.compile(r"^val[ \t]+([A-Za-z_]\w*)[ \t]*(?::[ \t]*Int[ \t]*)?=[ \t]*(\d+)[ \t]*;?[ \t]*\r?$", re.M)
+KOTLIN_LITERAL_VAL = re.compile(r"^[ \t]*val[ \t]+([A-Za-z_]\w*)[ \t]*(?::[ \t]*Int[ \t]*)?=[ \t]*(\d+)[ \t]*;?[ \t]*\r?$", re.M)
 
 
 def code_matches(pattern, text):

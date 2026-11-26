@@ -443,6 +443,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                         self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                          ("21.0.1", "candidate", role, 1))
 
+    def test_yaml_environment_java_matrices_keep_all_versions_without_duplicates(self):
+        for key in ("JAVA_VERSION", "JDK_VERSION", '"JAVA_VERSION"', "'JDK_VERSION'"):
+            for values in ('["17.0.5", "17.0.6", "21"]',
+                           '\n    - "17.0.5"\n    - "17.0.6"\n    - "21"'):
+                with self.subTest(key=key, values=values):
+                    rows = list(bitbucket.declarations(".gitlab-ci.yml",
+                        f"parallel:\n  matrix:\n    {key}: {values}", (17, 21)))
+                    self.assertEqual([(r["version"], r["status"], r["role"], r["line"]) for r in rows],
+                        [("17.0.5", "outside_scope", "build_jdk_declaration", 3),
+                         ("17.0.6", "candidate", "build_jdk_declaration", 3),
+                         ("21", "candidate", "build_jdk_declaration", 3)])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

@@ -45,7 +45,7 @@ XML = re.compile(
 ARG = re.compile(r"^\s*ARG\s+(\w+)(?:\s*=\s*(\S+))?", re.I)
 FROM = re.compile(r"^\s*FROM\s+(?:--\S+\s+)*(\S+)(?:\s+AS\s+(\S+))?", re.I)
 IMAGE = re.compile(r"""^\s*(?:-\s*)?(?:image|"image"|'image')\s*:\s*['"]?([^\s'"]+)""", re.I)
-YAML_JAVA_KEY = r'''(?:java-version|"java-version"|'java-version')'''
+YAML_JAVA_KEY = r'''(?:(?:java-version|JAVA_VERSION|JDK_VERSION)|"(?:java-version|JAVA_VERSION|JDK_VERSION)"|'(?:java-version|JAVA_VERSION|JDK_VERSION)')'''
 YAML_SETTING_KEY = re.compile(
     r'''^(\s*(?:-\s*)?)(["'])(java[._-]?(?:version|home)|jdk[._-]?(?:version|home))\2(\s*:)''', re.I
 )
@@ -348,7 +348,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 if value:
                     yaml_values = [next(part for part in value.groups() if part)]
         if yaml_values:
-            matches = [(key, value) for key, value in matches if key.lower() != "java-version"]
+            matches = [(key, value) for key, value in matches
+                       if key.lower().replace("_", "-") not in {"java-version", "jdk-version"}]
             matches.extend(("java-version", value) for value in yaml_values)
         if dockerfile and setting_line != line:
             assignments = shlex.split(setting_line.rstrip().removesuffix("\\"), comments=True)

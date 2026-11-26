@@ -73,6 +73,7 @@ MAVEN_DEFINE = re.compile(
     r"(?<!\S)(?:-D|--define(?:=|[ \t]+))[ \t]*(java\.version|jdk\.version|maven\.compiler\.(?:release|source|target))=([^\s]+)"
 )
 STRING_LITERAL = re.compile(r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""")
+KOTLIN_LITERAL_VAL = re.compile(r"^val[ \t]+([A-Za-z_]\w*)[ \t]*=[ \t]*(\d+)[ \t]*;?[ \t]*\r?$", re.M)
 
 
 def code_matches(pattern, text):
@@ -208,6 +209,10 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     stages = list(from_lines)
     copied_jdks = copied_jdk_stages(lines[stages[-1]:]) if stages else set()
     variables = {}
+    if name.endswith(".gradle.kts"):
+        for match in code_matches(KOTLIN_LITERAL_VAL, text):
+            key, value = match.groups()
+            variables[key] = value if key not in variables or variables[key] == value else "${" + key + "}"
     xml_declarations = {}
     gradle_declarations = {}
     jenkins_declarations = {}
@@ -281,6 +286,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
 
     def finding(line, role, evidence, value, image=False):
         resolved = substitute(value, variables)
+        if not image and name.endswith(".gradle.kts") and resolved.strip() in variables:
+            resolved = variables[resolved.strip()]
         vendor = ""
         distribution = ""
         if image:

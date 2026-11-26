@@ -103,6 +103,18 @@ FROM eclipse-temurin:17-jre
                          [("build_jdk_declaration", "17.0.10", 1),
                           ("bytecode_target", "17.0.10", 2)])
 
+    def test_java_version_inline_comment_does_not_supply_java_version(self):
+        for text, version, status in (("system # migrate to Java 21", "", "unknown_version"),
+                                      ("custom # 17.0.6", "", "unknown_version"),
+                                      ("17.0.5 # upgrade to 17.0.6", "17.0.5", "outside_scope"),
+                                      ("17.0.6 # installed", "17.0.6", "candidate"),
+                                      ("17 # planned 17.0.6", "17", "unknown_version")):
+            with self.subTest(text=text):
+                row, = bitbucket.declarations(".java-version", "# toolchain\n" + text, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                 (version, status, "build_jdk_declaration", 2))
+        self.assertEqual(list(bitbucket.declarations(".java-version", "# Java 21")), [])
+
     def test_asdf_java_alternatives_support_tabs_and_inline_comments(self):
         text = "nodejs 22.0.0\njava\ttemurin-17.0.5  temurin-17.0.6+10 # 21.0.1\n"
         rows = list(bitbucket.declarations(".tool-versions", text))

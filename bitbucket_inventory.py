@@ -368,7 +368,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             matches.extend(("toolchain", match[1]) for match in code_matches(GRADLE_GROOVY_TOOLCHAIN, line))
         matches.extend(jenkins_declarations.pop(number, []))
         if name == ".java-version":
-            matches.append(("java-version", stripped))
+            matches.append(("java-version", stripped.partition("#")[0].strip()))
         if name == ".tool-versions":
             tool, *versions = stripped.partition("#")[0].split()
             if tool == "java":

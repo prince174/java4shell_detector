@@ -203,6 +203,7 @@ class Registry:
                 raise ValueError(f"Invalid platform manifest list for {ref}")
             if not manifest["manifests"]:
                 raise ValueError(f"No platform manifests in image index for {ref}")
+            seen_descriptors = set()
             for descriptor in manifest["manifests"]:
                 if not isinstance(descriptor, dict):
                     error = ValueError(f"Invalid platform manifest descriptor for {ref}")
@@ -220,6 +221,10 @@ class Registry:
                 if (labels.get("vnd.docker.reference.type") == "attestation-manifest"
                         or descriptor.get("artifactType")):
                     continue
+                signature = json.dumps(descriptor, sort_keys=True)
+                if signature in seen_descriptors:
+                    continue
+                seen_descriptors.add(signature)
                 child_platform = descriptor.get("platform") or platform
                 try:
                     yield from self.manifests(name, descriptor["digest"], insecure,

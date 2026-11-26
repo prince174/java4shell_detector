@@ -1345,6 +1345,22 @@ class NexusTests(unittest.TestCase):
         with patch.object(nexus, "extdirect_read", return_value=[{"id": entry["id"]}]):
             self.assertEqual(list(nexus.repository_assets(None, "images")), [{"path": entry["id"]}])
 
+    def test_manifest_index_deduplicates_identical_platform_descriptors(self):
+        registry = object.__new__(nexus.Registry)
+        parent, child = ("sha256:" + digit * 64 for digit in ("a", "b"))
+        calls = []
+        descriptor = {"digest": child, "platform": {"os": "linux", "architecture": "amd64"}}
+        def run(command, ref, insecure):
+            calls.append((command, ref))
+            if ref.endswith(parent):
+                return json.dumps({"manifests": [descriptor, dict(reversed(list(descriptor.items())))]}).encode()
+            return b'{"layers":[],"config":{"mediaType":"application/vnd.oci.image.config.v1+json"}}'
+        registry.run = run
+        rows = list(registry.manifests("registry.invalid/image", parent, False))
+        self.assertEqual(rows, [(child, "linux/amd64")])
+        self.assertEqual(calls, [("manifest", "registry.invalid/image@" + parent),
+                                 ("manifest", "registry.invalid/image@" + child)])
+
     def test_manifest_rejects_malformed_platform_descriptor(self):
         registry = object.__new__(nexus.Registry)
         registry.run = lambda *args: (_ for _ in ()).throw(AssertionError("unexpected registry request"))

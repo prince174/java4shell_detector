@@ -501,6 +501,20 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                      ("", "unknown_version", "build_jdk_declaration", 4))
 
+    def test_unresolved_parameter_expansion_does_not_supply_default_java_version(self):
+        for expression in ("${JAVA_VERSION:-21}", "${JAVA_VERSION:+17.0.6}",
+                           "${JAVA_VERSION-17.0.6}", "${JAVA_VERSION:?21}"):
+            with self.subTest(expression=expression):
+                row, = bitbucket.declarations("Dockerfile", "FROM eclipse-temurin:" + expression, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("", "unknown_version", "runtime_base"))
+                row, = bitbucket.declarations("gradle.properties", "java.version=" + expression, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("", "unknown_version", "build_jdk_declaration"))
+        row, = bitbucket.declarations("Dockerfile",
+            "ARG JAVA_VERSION=17.0.6\nFROM eclipse-temurin:${JAVA_VERSION}", (17, 21))
+        self.assertEqual((row["version"], row["status"]), ("17.0.6", "candidate"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

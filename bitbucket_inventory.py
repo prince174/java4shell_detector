@@ -126,7 +126,7 @@ def safe_version(value):
 
 def version_value(value, java_majors):
     cleaned = value.strip().strip("'\"")
-    if VARIABLE.search(cleaned) or "{{" in cleaned:
+    if "$" in cleaned or "{{" in cleaned:
         return "", "unknown_version"
     named_jdks = list(JAVA_PATH_VERSION.finditer(cleaned))
     named_jdk = named_jdks[-1] if named_jdks else None
@@ -298,7 +298,7 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
             tag = leaf.partition(":")[2]
             hint = JAVA_TAG_VERSION.search(tag)
             inferred = tag[hint.end():] if hint else tag
-            version, status = classify(inferred, java_majors) if not VARIABLE.search(ref) and "{{" not in ref else ("", "unknown_version")
+            version, status = classify(inferred, java_majors) if "$" not in ref and "{{" not in ref else ("", "unknown_version")
             if "graalvm" in ref.lower():
                 distribution = "GraalVM"
             elif TEMURIN_IMAGE.search(ref):

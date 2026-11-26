@@ -361,6 +361,23 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"]), ("", "unknown_version"))
         self.assertEqual(list(bitbucket.declarations("build.gradle.kts", 'val targetJdk = 21', (17, 21))), [])
 
+    def test_kotlin_typed_int_val_resolves_only_literal_toolchain(self):
+        for major, status in ((21, "candidate"), (17, "unknown_version")):
+            for call in ("jvmToolchain(targetJdk)",
+                         "java { toolchain { languageVersion = JavaLanguageVersion.of(targetJdk) } }"):
+                with self.subTest(major=major, call=call):
+                    row, = bitbucket.declarations("build.gradle.kts",
+                        f"val targetJdk : Int = {major};\n{call}", (17, 21))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     (str(major), status, "build_jdk_declaration", 2))
+        for declaration in ('val targetJdk: Int = 20 + 1',
+                            'val targetJdk: Int = System.getenv("JDK_VERSION").toInt()',
+                            'val targetJdk: String = "21"'):
+            with self.subTest(declaration=declaration):
+                row, = bitbucket.declarations("build.gradle.kts",
+                    declaration + "\njvmToolchain(targetJdk)", (17, 21))
+                self.assertEqual((row["version"], row["status"]), ("", "unknown_version"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

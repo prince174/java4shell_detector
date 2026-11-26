@@ -347,6 +347,11 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
                 value = YAML_VERSION_ITEM.fullmatch(scalar[1].partition("#")[0].strip())
                 if value:
                     yaml_values = [next(part for part in value.groups() if part)]
+                elif scalar[1].lstrip().startswith("["):
+                    # A malformed or unresolved matrix is not a scalar Java version.
+                    matches = [(key, value) for key, value in matches
+                               if key.lower().replace("_", "-") not in {"java-version", "jdk-version"}]
+                    matches.append(("java-version", ""))
         if yaml_values:
             matches = [(key, value) for key, value in matches
                        if key.lower().replace("_", "-") not in {"java-version", "jdk-version"}]

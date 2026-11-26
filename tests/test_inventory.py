@@ -455,6 +455,15 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                          ("17.0.6", "candidate", "build_jdk_declaration", 3),
                          ("21", "candidate", "build_jdk_declaration", 3)])
 
+    def test_invalid_yaml_java_matrix_never_falls_back_to_first_number(self):
+        for key in ("java-version", "JAVA_VERSION", '"JDK_VERSION"'):
+            for values in ('["17.0.6",, "21"]', '["21", unresolved]',
+                           '["17.0.6"', '[]'):
+                with self.subTest(key=key, values=values):
+                    rows = list(bitbucket.declarations("ci.yml", f"{key}: {values}", (17, 21)))
+                    self.assertEqual([(r["version"], r["status"], r["role"]) for r in rows],
+                                     [("", "unknown_version", "build_jdk_declaration")])
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

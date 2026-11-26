@@ -1223,6 +1223,18 @@ class NexusTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "repository images, node v2"):
                     list(nexus.repository_assets(None, "images"))
 
+    def test_browse_rejects_non_boolean_leaf_instead_of_skipping_folder(self):
+        for leaf in ("false", "true", 0, 1, None, [], {}):
+            entry = {"id": "v2/application", "leaf": leaf}
+            with self.subTest(leaf=leaf), patch.object(nexus, "extdirect_read", return_value=[entry]):
+                with self.assertRaisesRegex(ValueError, "invalid leaf flag for repository images, node v2"):
+                    list(nexus.repository_assets(None, "images"))
+        entry = {"id": "v2/application/manifests/1.0", "leaf": True}
+        with patch.object(nexus, "extdirect_read", return_value=[entry]):
+            self.assertEqual(list(nexus.repository_assets(None, "images")), [{"path": entry["id"]}])
+        with patch.object(nexus, "extdirect_read", return_value=[{"id": entry["id"]}]):
+            self.assertEqual(list(nexus.repository_assets(None, "images")), [{"path": entry["id"]}])
+
     def test_manifest_rejects_malformed_platform_descriptor(self):
         registry = object.__new__(nexus.Registry)
         registry.run = lambda *args: (_ for _ in ()).throw(AssertionError("unexpected registry request"))

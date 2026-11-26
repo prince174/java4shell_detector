@@ -378,6 +378,22 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     declaration + "\njvmToolchain(targetJdk)", (17, 21))
                 self.assertEqual((row["version"], row["status"]), ("", "unknown_version"))
 
+    def test_gradle_language_version_call_has_no_generic_duplicate(self):
+        for path in ("build.gradle", "build.gradle.kts"):
+            for value, version, status in (("21", "21", "candidate"),
+                                           ("17", "17", "unknown_version"),
+                                           ('"17.0.5"', "17.0.5", "outside_scope"),
+                                           ('"17.0.6"', "17.0.6", "candidate"),
+                                           ("unresolvedJdk", "", "unknown_version")):
+                with self.subTest(path=path, value=value):
+                    row, = bitbucket.declarations(path,
+                        f"java {{\n  toolchain {{\n    languageVersion = JavaLanguageVersion.of({value})\n  }}\n}}",
+                        (17, 21))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     (version, status, "build_jdk_declaration", 3))
+        row, = bitbucket.declarations("build.gradle.kts", "languageVersion = 21", (17, 21))
+        self.assertEqual((row["version"], row["status"]), ("21", "candidate"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

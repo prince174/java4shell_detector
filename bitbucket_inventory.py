@@ -359,6 +359,8 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
         gradle_rows = gradle_declarations.pop(number, [])
         compatibility_keys = {key.lower() for key, _ in gradle_rows
                               if key in {"sourceCompatibility", "targetCompatibility", "jvmTarget"}}
+        if any(key == "toolchain" for key, _ in gradle_rows):
+            compatibility_keys.add("languageversion")
         if compatibility_keys:
             matches = [(key, value) for key, value in matches if key.lower() not in compatibility_keys]
         matches.extend(gradle_rows)

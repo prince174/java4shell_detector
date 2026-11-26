@@ -337,6 +337,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  (str(major), status, "build_jdk_declaration"))
 
+    def test_java_home_prefers_innermost_named_jdk_directory(self):
+        for home, version, status in (
+                ("/opt/jdk-8/toolchains/jdk-17.0.6", "17.0.6", "candidate"),
+                ("/opt/jdk-21/jdk-17.0.5", "17.0.5", "outside_scope"),
+                ("/opt/jdk-17.0.6/jre-21.0.1", "21.0.1", "candidate")):
+            with self.subTest(home=home):
+                row, = bitbucket.declarations("gradle.properties", f"org.gradle.java.home={home}", (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (version, status, "build_jdk_declaration"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

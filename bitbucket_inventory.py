@@ -127,7 +127,8 @@ def version_value(value, java_majors):
     cleaned = value.strip().strip("'\"")
     if VARIABLE.search(cleaned) or "{{" in cleaned:
         return "", "unknown_version"
-    named_jdk = JAVA_PATH_VERSION.search(cleaned)
+    named_jdks = list(JAVA_PATH_VERSION.finditer(cleaned))
+    named_jdk = named_jdks[-1] if named_jdks else None
     if named_jdk:
         version = re.sub(r"\.jdk$", "", named_jdk[1], flags=re.I)
         debian_alias = re.fullmatch(r"1\.([1-9]\d)\.0-openjdk(?:-[A-Za-z0-9._+\-]+)?", version, re.I)

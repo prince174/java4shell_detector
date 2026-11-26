@@ -130,6 +130,9 @@ def version_value(value, java_majors):
     named_jdk = JAVA_PATH_VERSION.search(cleaned)
     if named_jdk:
         version = re.sub(r"\.jdk$", "", named_jdk[1], flags=re.I)
+        debian_alias = re.fullmatch(r"1\.([1-9]\d)\.0-openjdk(?:-[A-Za-z0-9._+\-]+)?", version, re.I)
+        if debian_alias:
+            version = debian_alias[1]
         return classify(version, java_majors)
     if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)

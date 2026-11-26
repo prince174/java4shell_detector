@@ -329,6 +329,14 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                      (version, status, "bytecode_target", 2))
 
+    def test_java_home_debian_alias_preserves_major_without_inventing_patch(self):
+        for major, status in ((17, "unknown_version"), (21, "candidate"), (11, "outside_scope")):
+            with self.subTest(major=major):
+                text = f"JAVA_HOME: /usr/lib/jvm/java-1.{major}.0-openjdk-amd64"
+                row, = bitbucket.declarations("build.yml", text, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (str(major), status, "build_jdk_declaration"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

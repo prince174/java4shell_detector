@@ -464,6 +464,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                     self.assertEqual([(r["version"], r["status"], r["role"]) for r in rows],
                                      [("", "unknown_version", "build_jdk_declaration")])
 
+    def test_kotlin_non_literal_shadow_does_not_reuse_outer_literal(self):
+        for declarations in (
+            'val targetJdk = 21\njava {\n  val targetJdk = System.getenv("JDK_VERSION").toInt()',
+            'val targetJdk = System.getenv("JDK_VERSION").toInt()\njava {\n  val targetJdk = 21',
+            'val targetJdk = 21\njava {\n  val targetJdk: String = "21"',
+        ):
+            with self.subTest(declarations=declarations):
+                row, = bitbucket.declarations("build.gradle.kts",
+                    declarations + "\n  jvmToolchain(targetJdk)\n}", (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("", "unknown_version", "build_jdk_declaration"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

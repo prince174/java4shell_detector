@@ -61,7 +61,7 @@ GRADLE_JVM_TARGET_ASSIGNMENT = re.compile(
     r"""\bjvmTarget\s*=\s*(?:(?:[\w.]+\.)?JVM_(\d+)(?:_(\d+))?\b|"([\d.]+)"|'([\d.]+)')"""
 )
 GRADLE_JVM_TARGET_STRING = re.compile(r"""\bjvmTarget\.set\s*\(\s*(?:[\w.]+\.)?JvmTarget\.fromTarget\s*\(\s*['"]([\d.]+)['"]\s*\)\s*\)""")
-GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\(\s*(\d+)\s*\)")
+GRADLE_RELEASE = re.compile(r"\boptions\.release\.set\s*\(\s*(\d+)\s*\)")
 GRADLE_RELEASE_ASSIGNMENT = re.compile(r"\boptions\.release\s*=\s*(\d+)\b")
 GRADLE_COMPATIBILITY = re.compile(
     r"""\b(sourceCompatibility|targetCompatibility)\s*=\s*(JavaVersion\.VERSION_(?:1_[5-8]|\d+)"""

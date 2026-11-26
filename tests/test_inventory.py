@@ -319,6 +319,16 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
                                  (version, status, "bytecode_target", 2))
 
+    def test_gradle_release_set_accepts_space_before_parenthesis(self):
+        for path in ("build.gradle", "build.gradle.kts"):
+            for version, status in (("21", "candidate"), ("11", "outside_scope"), ("17", "unknown_version")):
+                with self.subTest(path=path, version=version):
+                    task = "tasks.withType<JavaCompile>" if path.endswith(".kts") else "tasks.withType(JavaCompile)"
+                    row, = bitbucket.declarations(path,
+                        f"\n{task} {{ options.release.set ({version}) }}", (17, 21))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     (version, status, "bytecode_target", 2))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

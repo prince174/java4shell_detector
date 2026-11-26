@@ -1222,6 +1222,20 @@ class NexusTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "transaction ID"):
             nexus.extdirect_read(api, "coreui_Browse", "read", {})
 
+    def test_extdirect_transaction_id_requires_integer_not_equal_boolean_or_float(self):
+        api = argparse.Namespace(base="https://nexus.invalid")
+        for transaction in (True, False, 1.0, "1", None, [], {}):
+            with self.subTest(transaction=transaction):
+                response = {"tid": transaction, "result": {"success": True, "data": []}}
+                api.read = lambda *args, **kwargs: json.dumps(response).encode()
+                with self.assertRaisesRegex(ValueError, "transaction ID"):
+                    nexus.extdirect_read(api, "coreui_Browse", "read", {})
+        for fields in ({"tid": 1}, {}):
+            with self.subTest(fields=fields):
+                response = {**fields, "result": {"success": True, "data": []}}
+                api.read = lambda *args, **kwargs: json.dumps(response).encode()
+                self.assertEqual(nexus.extdirect_read(api, "coreui_Browse", "read", {}), [])
+
     def test_extdirect_rejects_response_for_another_operation(self):
         api = argparse.Namespace(base="https://nexus.invalid")
         for fields in ({"action": "coreui_Repository"}, {"method": "delete"}):

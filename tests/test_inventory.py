@@ -431,6 +431,18 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
                 self.assertEqual((row["version"], row["status"], row["role"]),
                                  (version, status, "build_jdk_declaration"))
 
+    def test_docker_copy_version_subdirectory_marks_only_whole_jdk_as_bundled(self):
+        base = "FROM eclipse-temurin:21.0.1 AS tools\nFROM debian:stable\n"
+        for directory in ("jdk", "openjdk", "jre"):
+            for source, role in ((f"/opt/{directory}/21.0.1/", "bundled_jdk"),
+                                 (f"/opt/{directory}/21.0.1/bin/java", "intermediate_base")):
+                for arguments in (f"{source} /runtime/", json.dumps([source, "/runtime/"])):
+                    with self.subTest(source=source, arguments=arguments):
+                        row, = bitbucket.declarations("Dockerfile",
+                            base + "COPY --from=tools " + arguments, (17, 21))
+                        self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                         ("21.0.1", "candidate", role, 1))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

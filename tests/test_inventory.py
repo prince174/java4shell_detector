@@ -515,6 +515,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
             "ARG JAVA_VERSION=17.0.6\nFROM eclipse-temurin:${JAVA_VERSION}", (17, 21))
         self.assertEqual((row["version"], row["status"]), ("17.0.6", "candidate"))
 
+    def test_java_home_numeric_parent_does_not_prove_runtime_version(self):
+        for value in ("/opt/21/java/current", "/build/17.0.6/runtime/current",
+                      r"C:\tools\21\java\current", r"\server\21\runtime"):
+            with self.subTest(value=value):
+                row, = bitbucket.declarations("gradle.properties", "org.gradle.java.home=" + value, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 ("", "unknown_version", "build_jdk_declaration"))
+        row, = bitbucket.declarations("gradle.properties",
+            "org.gradle.java.home=/opt/21/jdk-17.0.6", (17, 21))
+        self.assertEqual((row["version"], row["status"]), ("17.0.6", "candidate"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

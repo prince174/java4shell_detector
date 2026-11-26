@@ -136,6 +136,8 @@ def version_value(value, java_majors):
         if debian_alias:
             version = debian_alias[1]
         return classify(version, java_majors)
+    if cleaned.startswith(("/", "\\")) or re.match(r"^[A-Za-z]:[/\\]", cleaned):
+        return "", "unknown_version"
     if LEGACY_VERSION.search(cleaned):
         return classify(cleaned, java_majors)
     compatibility = re.search(r"\bVERSION_(1_[5-8]|\d+)\b", cleaned)

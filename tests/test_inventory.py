@@ -490,6 +490,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
             "var targetJdk = 21\njvmToolchain(targetJdk)", (17, 21))
         self.assertEqual((row["version"], row["status"]), ("", "unknown_version"))
 
+    def test_kotlin_delegated_jdk_binding_does_not_reuse_outer_literal(self):
+        for binding in ("val", "var"):
+            for annotation in ("", ": Int"):
+                with self.subTest(binding=binding, annotation=annotation):
+                    text = ("val targetJdk = 21\njava {\n"
+                            f"  {binding} targetJdk{annotation} by extra\n"
+                            "  jvmToolchain(targetJdk)\n}")
+                    row, = bitbucket.declarations("build.gradle.kts", text, (17, 21))
+                    self.assertEqual((row["version"], row["status"], row["role"], row["line"]),
+                                     ("", "unknown_version", "build_jdk_declaration", 4))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

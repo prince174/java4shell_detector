@@ -73,7 +73,7 @@ MAVEN_DEFINE = re.compile(
     r"(?<!\S)(?:-D|--define(?:=|[ \t]+))[ \t]*(java\.version|jdk\.version|maven\.compiler\.(?:release|source|target))=([^\s]+)"
 )
 STRING_LITERAL = re.compile(r""""(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'""")
-KOTLIN_BINDING = re.compile(r"^[ \t]*(val|var)[ \t]+([A-Za-z_]\w*)[ \t]*(?::[ \t]*([^=\r\n]+?)[ \t]*)?=[ \t]*([^\r\n]*)\r?$", re.M)
+KOTLIN_BINDING = re.compile(r"^[ \t]*(val|var)[ \t]+([A-Za-z_]\w*)[ \t]*(?::[ \t]*([^=\r\n]+?)[ \t]*)?(=|by[ \t]+)[ \t]*([^\r\n]*)\r?$", re.M)
 
 
 def code_matches(pattern, text):
@@ -211,9 +211,9 @@ def declarations(path, text, java_majors=DEFAULT_JAVA_MAJORS):
     variables = {}
     if name.endswith(".gradle.kts"):
         for match in code_matches(KOTLIN_BINDING, text):
-            binding, key, annotation, expression = match.groups()
+            binding, key, annotation, operator, expression = match.groups()
             literal = re.fullmatch(r"(\d+)[ \t]*;?[ \t]*", expression)
-            value = literal[1] if binding == "val" and literal and annotation in (None, "Int") else "${" + key + "}"
+            value = literal[1] if binding == "val" and operator == "=" and literal and annotation in (None, "Int") else "${" + key + "}"
             variables[key] = value if key not in variables or variables[key] == value else "${" + key + "}"
     xml_declarations = {}
     gradle_declarations = {}

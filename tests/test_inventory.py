@@ -420,6 +420,17 @@ COPY --from=TOOLS ["/opt/java/openjdk/", "/runtime jdk/"]
             "  val targetJdk = 20 + 1\njvmToolchain(targetJdk)", (17, 21))
         self.assertEqual((row["version"], row["status"]), ("", "unknown_version"))
 
+    def test_java_home_version_subdirectory_ignores_numeric_parent(self):
+        for value, version, status in (("/tools/2026/java/21.0.1", "21.0.1", "candidate"),
+                                       ("/tools/2026/jdk/17.0.6", "17.0.6", "candidate"),
+                                       (r"C:\tools\2026\jdk\17.0.5", "17.0.5", "outside_scope"),
+                                       (r"C:\tools\2026\java\17", "17", "unknown_version")):
+            with self.subTest(value=value):
+                row, = bitbucket.declarations("gradle.properties",
+                    "org.gradle.java.home=" + value, (17, 21))
+                self.assertEqual((row["version"], row["status"], row["role"]),
+                                 (version, status, "build_jdk_declaration"))
+
     def test_docker_copy_options_are_not_sources(self):
         base = "FROM eclipse-temurin:17.0.6 AS tools\nFROM debian:stable\n"
         cases = [

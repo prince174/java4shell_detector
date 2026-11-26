@@ -30,7 +30,7 @@ JDK_DIRECTORY = re.compile(
     r"|java-\d+(?:\.\d+)*-openjdk(?:-[A-Za-z0-9._+\-]+)?)/?", re.I
 )
 JAVA_TAG_VERSION = re.compile(rf"(?:^|[_.-]){JAVA}[_.-]?(?=\d)", re.I)
-JAVA_PATH_VERSION = re.compile(rf"(?:^|[/\\]){JAVA}[_.-]?([0-9][A-Za-z0-9._+\-]*)", re.I)
+JAVA_PATH_VERSION = re.compile(rf"(?:^|[/\\]){JAVA}[/\\_.-]?([0-9][A-Za-z0-9._+\-]*)", re.I)
 VARIABLE = re.compile(r"\$\{([\w.-]+)\}|\$([A-Za-z_]\w*)")
 SETTING = re.compile(
     r"^\s*(?:-\s*)?(?P<key>java[._-]?(?:version|home)|jdk[._-]?(?:version|home)|"

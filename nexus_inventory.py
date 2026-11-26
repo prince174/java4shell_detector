@@ -324,7 +324,11 @@ def inventory(api, registry, args, mappings, workdir):
                     not isinstance(repo.get(key), str) or not repo[key].strip()
                     for key in ("name", "format", "type"))):
                 raise ValueError(f"Nexus repository catalog has an invalid entry at index {position}")
-        repositories = {repo["name"]: repo for repo in catalog}
+        repositories = {}
+        for repo in catalog:
+            if repo["name"] in repositories:
+                raise ValueError(f"Nexus repository catalog contains duplicate name: {repo['name']}")
+            repositories[repo["name"]] = repo
         requested = set(args.repository) if args.repository else {
             name for name, repo in repositories.items() if repo["format"] == "docker" and repo["type"] in
             ({"hosted", "proxy"} if args.include_proxy else {"hosted"})

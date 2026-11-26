@@ -1009,6 +1009,20 @@ class NexusTests(unittest.TestCase):
                 self.assertIn("Nexus repository catalog", errors[0]["error"])
                 browse.assert_not_called()
 
+    def test_duplicate_repository_catalog_names_do_not_silently_overwrite(self):
+        first = {"name": "images", "format": "docker", "type": "hosted"}
+        for second in (dict(first), {**first, "format": "maven2"}, {**first, "type": "proxy"}):
+            with self.subTest(second=second), tempfile.TemporaryDirectory() as directory:
+                with patch.object(nexus, "repository_catalog", return_value=[first, second]), \
+                        patch.object(nexus, "repository_assets") as browse:
+                    assets, findings, errors = nexus.inventory(
+                        None, None, argparse.Namespace(discovery="rest"), {}, directory)
+                self.assertEqual((assets, findings), ([], []))
+                self.assertEqual(len(errors), 1)
+                self.assertEqual(errors[0]["stage"], "list_repositories")
+                self.assertIn("duplicate name: images", errors[0]["error"])
+                browse.assert_not_called()
+
     def test_api_timeouts_are_distinct_from_connection_errors(self):
         api = Api("https://nexus.invalid", None, 1)
         for failure in (TimeoutError("read deadline"), URLError(TimeoutError("connect deadline"))):
